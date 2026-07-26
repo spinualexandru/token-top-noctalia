@@ -1,44 +1,81 @@
 {
   "title": "token-top",
-  "description": "Track Codex quota usage and session token statistics from the bar.",
+  "description": "Track Codex and Claude Code quota usage and local session statistics from the bar.",
+  "providers": {
+    "codex": "Codex",
+    "claude": "Claude"
+  },
+  "tabs": {
+    "overview": "Overview",
+    "codex": "Codex",
+    "claude": "Claude",
+    "details": "Details"
+  },
+  "overview": {
+    "subtitle": "Quota and local activity across your coding agents.",
+    "one_available": "1 agent available",
+    "available": "{count} agents available"
+  },
   "labels": {
     "five_hour": "5-hour limit",
     "weekly": "Weekly limit",
+    "weekly_scoped": "Scoped weekly limit",
     "status": "Status",
+    "provider": "Provider",
     "plan": "{plan}",
-    "unknown_plan": "Unknown",
-    "unavailable": "Usage unavailable",
+    "unknown_plan": "Plan unavailable",
+    "unknown_model": "Unknown model",
+    "unavailable": "Unavailable",
+    "quota_unavailable": "Quota unavailable",
     "percent_used": "{percent}% used",
+    "mini_usage": "{percent}% · {time}",
     "usage_and_reset": "{percent} used · resets in {time}",
     "resets_in": "Resets in {time}",
     "reset_unknown": "unknown",
     "reset_now": "now",
     "updated_at": "Updated {time}",
-    "not_updated": "Not updated yet"
+    "not_updated": "Not updated yet",
+    "local_activity_only": "Local activity only",
+    "not_connected": "Not connected",
+    "connecting": "Connecting…",
+    "extra_usage": "Extra usage",
+    "extra_usage_value": "{currency} {used} / {currency} {limit}"
+  },
+  "guidance": {
+    "codex": "Run codex login to connect quota usage. Local sessions remain available when present.",
+    "claude": "Run claude login to connect quota usage. Local Claude Code sessions remain available when present."
   },
   "status": {
-    "loading": "Refreshing Codex usage…"
+    "loading": "Refreshing {provider} usage…"
   },
   "stats": {
-    "title": "Stats",
+    "title": "Activity",
     "since_reset": "Since limit reset",
+    "last_seven_days": "Last 7 days",
     "today": "Today",
-    "average_per_day": "Average per day",
-    "average_per_thread": "Average per thread",
     "daily_activity": "Daily activity",
     "current_window": "Current limit window",
-    "breakdown": "Input / Output / Cached",
+    "codex_breakdown": "Input / Output / Cached",
+    "claude_breakdown": "Input / Output / Cache write / Cache read",
     "input": "Input",
     "output": "Output",
     "cached": "Cached",
+    "cache_write": "Cache write",
+    "cache_read": "Cache read",
     "cached_share": "{percent}% of input cached",
     "reasoning_share": "{value} reasoning · {percent}% of output",
     "requests_turns": "Requests / turns",
     "requests_turns_value": "{requests} / {turns}",
-    "average_median": "Average / median per thread",
+    "requests_sessions": "Requests / sessions",
+    "requests_sessions_value": "{requests} / {sessions}",
+    "average_median_thread": "Average / median per thread",
+    "average_median_session": "Average / median per session",
     "average_median_value": "{average} / {median}",
     "largest_thread": "Largest thread",
-    "largest_thread_value": "{value} · {percent}% of total",
+    "largest_session": "Largest session",
+    "largest_value": "{value} · {percent}% of total",
+    "model_mix": "Model mix",
+    "model_mix_value": "{tokens} tokens · {requests} requests",
     "projected_by_reset": "Projected by reset",
     "daily_pace": "{value} tokens/day",
     "higher_than_previous": "Pace {percent}% higher than previous window",
@@ -46,41 +83,71 @@
     "same_as_previous": "Same pace as previous window",
     "comparison_unavailable": "No previous-window comparison",
     "tokens": "{value} tokens",
-    "loading": "Reading Codex sessions…",
-    "loading_progress": "Reading Codex sessions… {processed}/{total}",
-    "calculating": "Calculating stats…",
-    "unavailable": "Session token usage is unavailable.",
+    "loading": "Reading {provider} sessions…",
+    "calculating": "Calculating activity…",
+    "unavailable": "{provider} local activity is unavailable.",
     "one_thread": "1 thread",
     "threads": "{count} threads",
-    "summary": "{threads} · weekly window started {date}"
+    "one_session": "1 session",
+    "sessions": "{count} sessions",
+    "exact_summary": "{units} · limit window started {date}",
+    "rolling_summary": "{units} · rolling seven-day window"
   },
   "settings": {
+    "bar_provider": {
+      "label": "Agent shown in bar",
+      "description": "Choose which coding agent's quota appears in the compact bar widget.",
+      "options": {
+        "codex": "Codex",
+        "claude": "Claude"
+      }
+    },
     "show_five_hour_bar": {
-      "label": "Show 5-hour limit in bar",
-      "description": "Display the 5-hour percentage and tooltip row in the bar."
+      "label": "Codex settings · Show 5-hour limit in bar",
+      "description": "Display Codex's 5-hour percentage and tooltip row in the bar when Codex is selected."
     },
     "show_five_hour_panel": {
-      "label": "Show 5-hour limit in panel",
-      "description": "Display the 5-hour usage card in the details panel."
+      "label": "Codex settings · Show 5-hour limit in panel",
+      "description": "Display Codex's 5-hour quota in Overview and the Codex detail view."
+    },
+    "show_claude_five_hour_bar": {
+      "label": "Claude settings · Show 5-hour limit in bar",
+      "description": "Display Claude's 5-hour percentage and tooltip row in the bar when Claude is selected."
+    },
+    "show_claude_five_hour_panel": {
+      "label": "Claude settings · Show 5-hour limit in panel",
+      "description": "Display Claude's 5-hour quota in Overview and the Claude detail view."
     },
     "color": {
       "label": "Text color",
-      "description": "Color role or hex value for the usage text in the bar."
+      "description": "Color role or hex value for usage text in the bar."
     },
     "icon_color": {
       "label": "Icon color",
-      "description": "Color role or hex value for the OpenAI icon in the bar. Falls back to the text color."
+      "description": "Color role or hex value for the selected agent icon. Falls back to the text color."
     }
   },
   "errors": {
-    "auth_missing": "Codex auth.json was not found. Run codex login first.",
-    "auth_invalid": "Codex auth.json is not valid JSON.",
-    "oauth_required": "Codex OAuth credentials are missing. Run codex login first.",
-    "unauthorized": "Codex credentials were rejected. Run codex login again.",
-    "network": "Could not reach the Codex usage service.",
-    "request_not_started": "Noctalia could not start the usage request.",
-    "http_status": "Codex usage request failed with HTTP {status}.",
-    "response_invalid": "Codex returned an invalid usage response.",
-    "no_windows": "Codex returned no usable quota windows."
+    "codex_auth_missing": "Codex auth.json was not found. Run codex login first.",
+    "codex_auth_invalid": "Codex auth.json is not valid JSON.",
+    "codex_oauth_required": "Codex OAuth credentials are missing. Run codex login first.",
+    "codex_unauthorized": "Codex credentials were rejected. Run codex login again.",
+    "codex_network": "Could not reach the Codex usage service.",
+    "codex_request_not_started": "Noctalia could not start the Codex usage request.",
+    "codex_http_status": "Codex usage request failed with HTTP {status}.",
+    "codex_response_invalid": "Codex returned an invalid usage response.",
+    "codex_no_windows": "Codex returned no usable quota windows.",
+    "claude_auth_missing": "Claude Code credentials were not found. Run claude login first.",
+    "claude_auth_invalid": "Claude Code credentials are not valid JSON.",
+    "claude_oauth_required": "Claude Code OAuth credentials are missing. Run claude login first.",
+    "claude_expired": "Claude Code credentials expired. Run claude login again.",
+    "claude_scope": "Claude Code credentials cannot read usage. Run claude login again.",
+    "claude_unauthorized": "Claude Code credentials were rejected. Run claude login again.",
+    "claude_rate_limited": "Claude temporarily rate-limited the usage request. The last update remains visible.",
+    "claude_network": "Could not reach the Claude usage service.",
+    "claude_request_not_started": "Noctalia could not start the Claude usage request.",
+    "claude_http_status": "Claude usage request failed with HTTP {status}.",
+    "claude_response_invalid": "Claude returned an invalid usage response.",
+    "claude_no_windows": "Claude returned no usable quota windows."
   }
 }

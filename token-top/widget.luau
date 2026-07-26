@@ -2,19 +2,39 @@
 
 local STATE_KEY = "usage_snapshot"
 local PANEL_ID = "spinualexandru/token-top:details"
-local snapshot = noctalia.state.get(STATE_KEY) or { status = "loading" }
+local snapshot = noctalia.state.get(STATE_KEY) or { providers = {} }
+
+local PROVIDERS = {
+  codex = { labelKey = "providers.codex", glyph = "brand-openai" },
+  claude = { labelKey = "providers.claude", glyph = "asterisk-simple" },
+}
 
 local function tr(key, substitutions)
   return noctalia.tr(key, substitutions)
 end
 
-local function showFiveHour()
-  local value = noctalia.getConfig("show_five_hour_bar")
+local function showFiveHour(providerName)
+  local key = providerName == "claude" and "show_claude_five_hour_bar" or "show_five_hour_bar"
+  local value = noctalia.getConfig(key)
   return value == true or value == "true"
 end
 
--- The bar's standard presentation settings ("Color" / "Icon Color") are seeded under
--- these keys; the hidden sentinel means the user left them unset.
+local function selectedProviderName()
+  local configured = noctalia.getConfig("bar_provider")
+  return configured == "claude" and "claude" or "codex"
+end
+
+local function selectedProvider()
+  local all = type(snapshot.providers) == "table" and snapshot.providers or {}
+  local name = selectedProviderName()
+  return name, type(all[name]) == "table" and all[name] or {
+    availability = "unavailable",
+    status = "loading",
+  }
+end
+
+-- The bar's standard presentation settings are seeded under these keys; the
+-- hidden sentinel means the user left them unset.
 local function configuredColor(key)
   local value = noctalia.getConfig(key)
   if type(value) == "string" and value ~= "" and value ~= "__unset__" then
@@ -51,7 +71,6 @@ local function resetText(window)
   if type(window) ~= "table" or tonumber(window.resetAt) == nil then
     return tr("labels.reset_unknown")
   end
-
   local remaining = math.max(0, math.floor(window.resetAt - os.time()))
   if remaining == 0 then
     return tr("labels.reset_now")
@@ -75,36 +94,59 @@ local function percentage(window)
   })
 end
 
+local function providerGuidance(name)
+  return name == "claude" and tr("guidance.claude") or tr("guidance.codex")
+end
+
 local function render()
+  local name, provider = selectedProvider()
+  local meta = PROVIDERS[name]
   local container = barWidget.isVertical() and ui.column or ui.row
-  local children = { ui.glyph({ name = "brand-openai", color = configuredColor("icon_color") or configuredColor("color") }) }
-  if showFiveHour() then
-    table.insert(children, percentage(snapshot.fiveHour))
+  local children = {
+    ui.glyph({
+      name = meta.glyph,
+      color = configuredColor("icon_color") or configuredColor("color"),
+    }),
+  }
+  if showFiveHour(name) then
+    table.insert(children, percentage(provider.fiveHour))
   end
-  table.insert(children, percentage(snapshot.weekly))
+  table.insert(children, percentage(provider.weekly))
   barWidget.render(container({ gap = 6, align = "center" }, children))
 
-  local tooltip = {}
-  if showFiveHour() then
+  local tooltip = {
+    {
+      key = tr("labels.provider"),
+      value = tr(meta.labelKey),
+    },
+  }
+  if showFiveHour(name) then
     table.insert(tooltip, {
       key = tr("labels.five_hour"),
       value = tr("labels.usage_and_reset", {
-        percent = percentText(snapshot.fiveHour),
-        time = resetText(snapshot.fiveHour),
+        percent = percentText(provider.fiveHour),
+        time = resetText(provider.fiveHour),
       }),
     })
   end
   table.insert(tooltip, {
     key = tr("labels.weekly"),
     value = tr("labels.usage_and_reset", {
-      percent = percentText(snapshot.weekly),
-      time = resetText(snapshot.weekly),
+      percent = percentText(provider.weekly),
+      time = resetText(provider.weekly),
     }),
   })
-  if snapshot.status == "loading" then
-    table.insert(tooltip, { key = tr("labels.status"), value = tr("status.loading") })
-  elseif snapshot.error ~= nil then
-    table.insert(tooltip, { key = tr("labels.status"), value = snapshot.error })
+  if provider.status == "loading" then
+    table.insert(tooltip, {
+      key = tr("labels.status"),
+      value = tr("status.loading", { provider = tr(meta.labelKey) }),
+    })
+  elseif provider.error ~= nil then
+    table.insert(tooltip, { key = tr("labels.status"), value = provider.error })
+  elseif provider.availability == "local_only" then
+    table.insert(tooltip, { key = tr("labels.status"), value = tr("labels.local_activity_only") })
+  elseif provider.availability == "unavailable" then
+    table.insert(tooltip, { key = tr("labels.status"), value = providerGuidance(name) })
   end
   barWidget.setTooltip(tooltip)
 end
@@ -112,7 +154,7 @@ end
 noctalia.setUpdateInterval(60000)
 
 noctalia.state.watch(STATE_KEY, function(value)
-  snapshot = type(value) == "table" and value or { status = "loading" }
+  snapshot = type(value) == "table" and value or { providers = {} }
   render()
 end)
 

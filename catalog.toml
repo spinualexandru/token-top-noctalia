@@ -4,10 +4,10 @@
 [[plugin]]
 id = "spinualexandru/token-top"
 name = "token-top"
-version = "0.3.1"
+version = "0.6.0"
 author = "spinualexandru"
 license = "MIT"
 icon = "sparkles"
-description = "Track Codex quota usage and session token statistics from the bar."
+description = "Track Codex and Claude Code quota usage and local session statistics from the bar."
 plugin_api = 3
 tags = ["productivity", "utility"]

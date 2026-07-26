@@ -1,6 +1,6 @@
 # token-top
 
-Track Codex quota consumption and session token usage from the bar.
+Track Codex and Claude Code quota consumption and local session token activity from the bar.
 
 ## Plugin
 
@@ -11,77 +11,96 @@ Track Codex quota consumption and session token usage from the bar.
 
 ## Features
 
-- Compact usage percentages prefixed by the OpenAI icon in the Noctalia bar, with an option to also show the 5-hour value.
-- An attached details panel with optional 5-hour usage, weekly progress, reset countdowns, the current plan under its commercial name, and the last successful refresh.
-- A compact stats ledger with today and current-window totals, a seven-day activity chart, input/output/cache and
-  reasoning breakdowns, request and turn counts, thread distribution, reset projection, and previous-window comparison.
-- Automatic refresh when Noctalia starts and every five minutes afterward.
-- A manual refresh button in the details panel.
-- Duration-based window detection, so weekly-only and reordered API responses are labelled correctly.
+- A compact bar view for either Codex or Claude, selected in plugin settings.
+- An Overview tab with quota and activity summaries for both agents.
+- Dedicated Codex and Claude tabs with provider-native quota and local-session detail.
+- Independent provider state: an error or stale response from one agent never replaces the other agent's data.
+- Automatic refresh at startup and every five minutes, plus a manual refresh for both agents.
+- Last-good quota retention with visible stale and sign-in guidance.
+
+Codex detail includes input, output, cached input, reasoning, requests, turns, and thread distribution. Claude detail
+includes input, output, cache creation, cache reads, requests, sessions, and model mix.
 
 ## Usage
 
-1. Sign in through the Codex CLI if you have not already:
+Sign in to one or both supported coding agents:
 
-   ```sh
-   codex login
-   ```
+```sh
+codex login
+claude login
+```
 
-2. Enable `spinualexandru/token-top` and add the **token-top** widget to a bar.
-3. Click the widget to open the details panel. The bar values and progress bars show percentage consumed, not percentage remaining.
+Enable `spinualexandru/token-top`, add the **token-top** widget to a bar, and choose **Agent shown in bar** in plugin
+settings. Click the widget to open Overview. The Codex and Claude tabs remain available when an agent is not connected
+and show the action needed to connect it.
 
-The token statistics use cumulative usage snapshots from local Codex session rollouts. **Today** starts at local
-midnight. The activity chart divides the exact weekly limit window into seven 24-hour slices, while the reset projection
-extrapolates the current pace across that complete window. Cached input is a subset of input, and reasoning is a subset
-of output.
-
-You can also toggle the details panel directly:
+Toggle the details panel directly with:
 
 ```sh
 noctalia msg panel-toggle spinualexandru/token-top:details
 ```
 
-The plugin uses the active OAuth account from `$CODEX_HOME/auth.json`, or `~/.codex/auth.json` when `CODEX_HOME` is
-unset. If credentials expire or are rejected, run `codex login` again; this plugin deliberately does not refresh or
-rewrite credentials.
+The quota bars show percentage consumed, not percentage remaining.
+
+## Activity definitions
+
+When weekly quota boundaries are available, local statistics use the provider's exact current and previous limit
+windows. Otherwise they use a rolling seven-day window and omit reset projections.
+
+- **Today** starts at local midnight.
+- **Codex token activity** uses cumulative local rollout snapshots. Cached input is a subset of input, and reasoning is
+  a subset of output.
+- **Claude token traffic** is input + cache-created input + cache-read input + output. Repeated streaming chunks and
+  parent/subagent copies are deduplicated before requests, sessions, and model mix are calculated.
+- The activity chart divides the active seven-day window into seven 24-hour slices.
+
+## Authentication and supported accounts
+
+Codex credentials and sessions are read from `$CODEX_HOME`, or `~/.codex` when the variable is unset.
+
+Claude Code credentials and sessions are read from `$CLAUDE_CONFIG_DIR`, or `~/.claude` when the variable is unset.
+Claude subscription quota requires Claude Code OAuth credentials with usage access. API-key, Amazon Bedrock, and Google
+Vertex configurations can still show local Claude activity when compatible session logs exist, but they do not expose
+Claude subscription quota through this plugin.
+
+The plugin reads one active account per provider. It does not import browser cookies, automate the Claude `/usage`
+screen, switch accounts, or refresh/rewrite either provider's credentials. If a credential expires, sign in again with
+the corresponding CLI.
 
 ## Dependencies
 
-- `rg` (ripgrep), used to stream only token and turn records from Codex session JSONL without loading full transcripts.
+- `rg` (ripgrep), used to extract structural token metadata from Codex and Claude session JSONL.
 
-CodexBar, `curl`, and `jq` are not required.
+`curl`, `jq`, CodexBar, and the Claude CLI are not invoked by the plugin.
 
 ## Settings
 
-- **Show 5-hour limit in bar:** shows the 5-hour percentage and tooltip row. Disabled by default.
-- **Show 5-hour limit in panel:** shows the 5-hour card in the details panel. Disabled by default.
+- **Agent shown in bar:** Codex by default; may be switched to Claude.
+- **Codex settings · Show 5-hour limit in bar/panel:** independent Codex controls, both disabled by default.
+- **Claude settings · Show 5-hour limit in bar/panel:** independent Claude controls, both enabled by default.
 
-The bar's standard **Color** and **Icon Color** widget settings (presentation group, visible with advanced settings
-enabled) tint the usage text and the OpenAI icon. When unset, the text uses usage-based accent colors.
+The bar's standard **Color** and **Icon Color** presentation settings tint the usage text and selected-provider glyph.
+When unset, usage-based semantic theme colors are used. Selecting an unavailable provider never silently substitutes
+the other provider; the bar shows an em dash and sign-in guidance.
 
-When both options are disabled (the default), the plugin stops retaining and publishing the 5-hour window. Codex supplies the
-5-hour and weekly windows through one usage endpoint, so the shared five-minute request continues to keep weekly usage
-current. The panel also provides a manual refresh.
+## Side effects and privacy
 
-## Side effects
-
-- **Filesystem reads:** reads the active Codex `auth.json` before each request and incrementally scans
-  `$CODEX_HOME/sessions` (or `~/.codex/sessions`) for token usage records.
-- **Network:** sends an authenticated `GET` request to `https://chatgpt.com/backend-api/wham/usage` to retrieve quota
-  percentages and reset times. Requests honor Noctalia's offline mode.
+- **Filesystem reads:** credentials and local JSONL session metadata under the active Codex and Claude configuration
+  roots.
+- **Network:** authenticated quota requests to `https://chatgpt.com/backend-api/wham/usage` and
+  `https://api.anthropic.com/api/oauth/usage`. Requests honor Noctalia's offline mode.
 - **Filesystem writes:** none.
-- **Spawned processes:** runs ripgrep during refreshes to stream structural `token_count` records and short
-  `turn_context` prefixes from relevant Codex session files.
+- **Spawned processes:** ripgrep scans relevant JSONL files. Claude extraction emits only timestamp, message/request
+  IDs, session ID, model, token counters, and sidechain status; prompts, responses, and tool payloads are never sent to
+  the Luau parser.
 
-The access token is kept only inside the polling service while a request is made. It is never copied into Noctalia
-shared state, logs, tooltips, notifications, or screenshots. When a refresh fails, the last successful usage snapshot
-remains visible and is marked stale.
+Access tokens stay inside the polling service only while a request is created. Credentials, transcript content,
+filenames, and project paths are never copied into shared state, logs, tooltips, notifications, or screenshots.
 
 ## Troubleshooting
 
-- **`auth.json` was not found:** run `codex login`, then refresh from the panel.
-- **OAuth credentials are missing:** API-key-only Codex configuration cannot access ChatGPT subscription quotas; sign
-  in with `codex login`.
-- **Credentials were rejected:** sign in again with `codex login`.
-- **Usage request failed:** check Noctalia's offline mode and your network connection. The previous successful values,
-  if any, remain visible.
+- **Codex quota is unavailable:** run `codex login`, then refresh from the panel.
+- **Claude quota is unavailable:** run `claude login`, then refresh from the panel.
+- **Only local activity appears:** the session store was readable but subscription quota credentials were not.
+- **A provider is stale:** the previous successful quota remains visible; check Noctalia offline mode and the network.
+- **Local activity is unavailable:** install `rg` and confirm the corresponding agent has local session JSONL files.
