@@ -67,7 +67,7 @@ The plugin reads one active account per provider. It does not import browser coo
 screen, switch accounts, or refresh/rewrite either provider's credentials. If a credential expires, sign in again with
 the corresponding CLI.
 
-## Dependencies
+## Requirements
 
 - `rg` (ripgrep), used to extract structural token metadata from Codex and Claude session JSONL.
 

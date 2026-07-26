@@ -1205,7 +1205,7 @@ local function refreshCodexUsage()
   local headers = {
     "Authorization: Bearer " .. accessToken,
     "Accept: application/json",
-    "User-Agent: Noctalia-token-top/0.4.0",
+    "User-Agent: Noctalia-token-top/0.7.0",
   }
   if accountId ~= nil then
     table.insert(headers, "ChatGPT-Account-Id: " .. accountId)
