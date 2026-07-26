@@ -35,7 +35,6 @@ local PROVIDERS = {
   },
   claude = {
     labelKey = "providers.claude",
-    glyph = "asterisk-simple",
     detailsCallback = "viewClaudeDetails",
   },
 }
@@ -129,6 +128,23 @@ end
 
 local function providerGuidance(providerName)
   return providerName == "claude" and tr("guidance.claude") or tr("guidance.codex")
+end
+
+local function providerIcon(providerName, size, color, opacity)
+  if providerName == "claude" then
+    return ui.image({
+      path = "claude.svg",
+      width = size,
+      height = size,
+      fit = "contain",
+      opacity = opacity or 1,
+    })
+  end
+  return ui.glyph({
+    name = PROVIDERS[providerName].glyph,
+    size = size,
+    color = color,
+  })
 end
 
 local function windowCard(title, window)
@@ -687,11 +703,12 @@ local function overviewProviderCard(providerName)
           align = "center",
           justify = "center",
         }, {
-          ui.glyph({
-            name = meta.glyph,
-            size = 17,
-            color = provider.availability == "unavailable" and "on_surface_variant" or "primary",
-          }),
+          providerIcon(
+            providerName,
+            17,
+            provider.availability == "unavailable" and "on_surface_variant" or "primary",
+            provider.availability == "unavailable" and 0.45 or 1
+          ),
         }),
         ui.column({ gap = 1, flexGrow = 1 }, {
           ui.label({ text = tr(meta.labelKey), fontWeight = "bold", color = "on_surface" }),

@@ -6,7 +6,7 @@ local snapshot = noctalia.state.get(STATE_KEY) or { providers = {} }
 
 local PROVIDERS = {
   codex = { labelKey = "providers.codex", glyph = "brand-openai" },
-  claude = { labelKey = "providers.claude", glyph = "asterisk-simple" },
+  claude = { labelKey = "providers.claude" },
 }
 
 local function tr(key, substitutions)
@@ -98,15 +98,27 @@ local function providerGuidance(name)
   return name == "claude" and tr("guidance.claude") or tr("guidance.codex")
 end
 
+local function providerIcon(name)
+  if name == "claude" then
+    return ui.image({
+      path = "claude.svg",
+      width = 18,
+      height = 18,
+      fit = "contain",
+    })
+  end
+  return ui.glyph({
+    name = PROVIDERS[name].glyph,
+    color = configuredColor("icon_color") or configuredColor("color"),
+  })
+end
+
 local function render()
   local name, provider = selectedProvider()
   local meta = PROVIDERS[name]
   local container = barWidget.isVertical() and ui.column or ui.row
   local children = {
-    ui.glyph({
-      name = meta.glyph,
-      color = configuredColor("icon_color") or configuredColor("color"),
-    }),
+    providerIcon(name),
   }
   if showFiveHour(name) then
     table.insert(children, percentage(provider.fiveHour))
