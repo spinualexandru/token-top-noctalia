@@ -94,13 +94,13 @@
     "rolling_summary": "{units} · rolling seven-day window"
   },
   "settings": {
-    "bar_provider": {
-      "label": "Agent shown in bar",
-      "description": "Choose which coding agent's quota appears in the compact bar widget.",
-      "options": {
-        "codex": "Codex",
-        "claude": "Claude"
-      }
+    "enable_codex": {
+      "label": "Codex · Enable",
+      "description": "Show Codex quota in the compact bar widget."
+    },
+    "enable_claude": {
+      "label": "Claude · Enable",
+      "description": "Show Claude quota in the compact bar widget."
     },
     "show_five_hour_bar": {
       "label": "Codex settings · Show 5-hour limit in bar",

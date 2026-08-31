@@ -11,7 +11,7 @@ Track Codex and Claude Code quota consumption and local session token activity f
 
 ## Features
 
-- A compact bar view for either Codex or Claude, selected in plugin settings.
+- A compact bar view showing every enabled provider.
 - An Overview tab with quota and activity summaries for both agents.
 - Dedicated Codex and Claude tabs with provider-native quota and local-session detail.
 - Independent provider state: an error or stale response from one agent never replaces the other agent's data.
@@ -30,9 +30,9 @@ codex login
 claude login
 ```
 
-Enable `spinualexandru/token-top`, add the **Token Top** widget to a bar, and choose **Agent shown in bar** in plugin
-settings. Click the widget to open Overview. The Codex and Claude tabs remain available when an agent is not connected
-and show the action needed to connect it.
+Enable `spinualexandru/token-top`, add the **Token Top** widget to a bar, and open its plugin settings. Enable Codex
+and/or Claude under their corresponding settings. Click the widget to open Overview. The Codex and Claude tabs remain
+available when an agent is not connected and show the action needed to connect it.
 
 Toggle the details panel directly with:
 
@@ -75,13 +75,14 @@ the corresponding CLI.
 
 ## Settings
 
-- **Agent shown in bar:** Codex by default; may be switched to Claude.
+- **Codex · Enable:** show or hide Codex quota in the compact bar widget; enabled by default.
+- **Claude · Enable:** show or hide Claude quota in the compact bar widget; disabled by default.
 - **Codex settings · Show 5-hour limit in bar/panel:** independent Codex controls, both disabled by default.
 - **Claude settings · Show 5-hour limit in bar/panel:** independent Claude controls, both enabled by default.
 
 The bar's standard **Color** presentation setting tints the usage text, while **Icon Color** tints the Codex glyph. The
-Claude logo keeps its brand color. When unset, usage-based semantic theme colors are used. Selecting an unavailable
-provider never silently substitutes the other provider; the bar shows an em dash and sign-in guidance.
+Claude logo keeps its brand color. When unset, usage-based semantic theme colors are used. Disabling both providers
+hides the widget.
 
 ## Side effects and privacy
 

@@ -1,6 +1,6 @@
 id = "spinualexandru/token-top"
 name = "Token Top"
-version = "0.7.0"
+version = "0.9.0"
 plugin_api = 3
 author = "spinualexandru"
 license = "MIT"
@@ -10,15 +10,11 @@ icon = "sparkles"
 description = "Track Codex and Claude Code quota usage and local session statistics from the bar."
 
 [[setting]]
-key = "bar_provider"
-type = "select"
-label_key = "settings.bar_provider.label"
-description_key = "settings.bar_provider.description"
-default = "codex"
-options = [
-  { value = "codex", label_key = "settings.bar_provider.options.codex" },
-  { value = "claude", label_key = "settings.bar_provider.options.claude" },
-]
+key = "enable_codex"
+type = "bool"
+label_key = "settings.enable_codex.label"
+description_key = "settings.enable_codex.description"
+default = true
 
 [[setting]]
 key = "show_five_hour_bar"
@@ -32,6 +28,13 @@ key = "show_five_hour_panel"
 type = "bool"
 label_key = "settings.show_five_hour_panel.label"
 description_key = "settings.show_five_hour_panel.description"
+default = false
+
+[[setting]]
+key = "enable_claude"
+type = "bool"
+label_key = "settings.enable_claude.label"
+description_key = "settings.enable_claude.description"
 default = false
 
 [[setting]]

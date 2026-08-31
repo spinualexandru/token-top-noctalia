@@ -5,9 +5,20 @@ local PANEL_ID = "spinualexandru/token-top:details"
 local snapshot = noctalia.state.get(STATE_KEY) or { providers = {} }
 
 local PROVIDERS = {
-  codex = { labelKey = "providers.codex", glyph = "brand-openai" },
-  claude = { labelKey = "providers.claude" },
+  codex = {
+    labelKey = "providers.codex",
+    glyph = "brand-openai",
+    enabledKey = "enable_codex",
+    defaultEnabled = true,
+  },
+  claude = {
+    labelKey = "providers.claude",
+    enabledKey = "enable_claude",
+    defaultEnabled = false,
+  },
 }
+
+local PROVIDER_ORDER = { "codex", "claude" }
 
 local function tr(key, substitutions)
   return noctalia.tr(key, substitutions)
@@ -19,15 +30,25 @@ local function showFiveHour(providerName)
   return value == true or value == "true"
 end
 
-local function selectedProviderName()
-  local configured = noctalia.getConfig("bar_provider")
-  return configured == "claude" and "claude" or "codex"
+local function enabledProviderNames()
+  local names = {}
+  for _, name in ipairs(PROVIDER_ORDER) do
+    local value = noctalia.getConfig(PROVIDERS[name].enabledKey)
+    -- Missing settings can occur while upgrading from a version without the
+    -- enable toggles. Preserve the previous Codex-only default.
+    if value == nil then
+      value = PROVIDERS[name].defaultEnabled
+    end
+    if value == true or value == "true" then
+      table.insert(names, name)
+    end
+  end
+  return names
 end
 
-local function selectedProvider()
+local function providerSnapshot(name)
   local all = type(snapshot.providers) == "table" and snapshot.providers or {}
-  local name = selectedProviderName()
-  return name, type(all[name]) == "table" and all[name] or {
+  return type(all[name]) == "table" and all[name] or {
     availability = "unavailable",
     status = "loading",
   }
@@ -113,25 +134,12 @@ local function providerIcon(name)
   })
 end
 
-local function render()
-  local name, provider = selectedProvider()
+local function appendTooltip(tooltip, name, provider)
   local meta = PROVIDERS[name]
-  local container = barWidget.isVertical() and ui.column or ui.row
-  local children = {
-    providerIcon(name),
-  }
-  if showFiveHour(name) then
-    table.insert(children, percentage(provider.fiveHour))
-  end
-  table.insert(children, percentage(provider.weekly))
-  barWidget.render(container({ gap = 6, align = "center" }, children))
-
-  local tooltip = {
-    {
-      key = tr("labels.provider"),
-      value = tr(meta.labelKey),
-    },
-  }
+  table.insert(tooltip, {
+    key = tr("labels.provider"),
+    value = tr(meta.labelKey),
+  })
   if showFiveHour(name) then
     table.insert(tooltip, {
       key = tr("labels.five_hour"),
@@ -160,6 +168,32 @@ local function render()
   elseif provider.availability == "unavailable" then
     table.insert(tooltip, { key = tr("labels.status"), value = providerGuidance(name) })
   end
+end
+
+local function render()
+  local names = enabledProviderNames()
+  if #names == 0 then
+    barWidget.setVisible(false)
+    barWidget.clearTooltip()
+    return
+  end
+  barWidget.setVisible(true)
+  local container = barWidget.isVertical() and ui.column or ui.row
+  local children = {}
+  local tooltip = {}
+  for _, name in ipairs(names) do
+    local provider = providerSnapshot(name)
+    local providerChildren = {
+      providerIcon(name),
+    }
+    if showFiveHour(name) then
+      table.insert(providerChildren, percentage(provider.fiveHour))
+    end
+    table.insert(providerChildren, percentage(provider.weekly))
+    table.insert(children, container({ gap = 6, align = "center" }, providerChildren))
+    appendTooltip(tooltip, name, provider)
+  end
+  barWidget.render(container({ gap = 8, align = "center" }, children))
   barWidget.setTooltip(tooltip)
 end
 
