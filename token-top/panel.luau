@@ -30,17 +30,50 @@ local CODEX_PLAN_NAMES = {
 local PROVIDERS = {
   codex = {
     labelKey = "providers.codex",
+    tabLabelKey = "tabs.codex",
     glyph = "brand-openai",
+    enabledKey = "enable_codex",
+    defaultEnabled = true,
     detailsCallback = "viewCodexDetails",
   },
   claude = {
     labelKey = "providers.claude",
+    tabLabelKey = "tabs.claude",
+    enabledKey = "enable_claude",
+    defaultEnabled = false,
     detailsCallback = "viewClaudeDetails",
   },
 }
 
+local PROVIDER_ORDER = { "codex", "claude" }
+
 local function tr(key, substitutions)
   return noctalia.tr(key, substitutions)
+end
+
+local function enabledProviderNames()
+  local names = {}
+  for _, name in ipairs(PROVIDER_ORDER) do
+    local value = noctalia.getConfig(PROVIDERS[name].enabledKey)
+    -- Missing settings can occur while upgrading from a version without the
+    -- enable toggles. Preserve the previous Codex-only default.
+    if value == nil then
+      value = PROVIDERS[name].defaultEnabled
+    end
+    if value == true or value == "true" then
+      table.insert(names, name)
+    end
+  end
+  return names
+end
+
+local function providerEnabled(name)
+  for _, enabledName in ipairs(enabledProviderNames()) do
+    if enabledName == name then
+      return true
+    end
+  end
+  return false
 end
 
 local function providerSnapshot(name)
@@ -768,15 +801,17 @@ local function overviewProviderCard(providerName)
 end
 
 local function overviewContent()
-  return {
+  local children = {
     ui.label({
       text = tr("overview.subtitle"),
       color = "on_surface_variant",
       fontSize = 12,
     }),
-    overviewProviderCard("codex"),
-    overviewProviderCard("claude"),
   }
+  for _, providerName in ipairs(enabledProviderNames()) do
+    table.insert(children, overviewProviderCard(providerName))
+  end
+  return children
 end
 
 local function tabButton(key, label, callback)
@@ -790,6 +825,15 @@ local function tabButton(key, label, callback)
 end
 
 local function tabRail()
+  local buttons = {
+    tabButton("overview", tr("tabs.overview"), "selectOverview"),
+  }
+  for _, providerName in ipairs(enabledProviderNames()) do
+    table.insert(
+      buttons,
+      tabButton(providerName, tr(PROVIDERS[providerName].tabLabelKey), PROVIDERS[providerName].detailsCallback)
+    )
+  end
   return ui.row({
     fill = "surface_variant",
     radius = 12,
@@ -797,16 +841,12 @@ local function tabRail()
     paddingV = 4,
     gap = 3,
     align = "center",
-  }, {
-    tabButton("overview", tr("tabs.overview"), "selectOverview"),
-    tabButton("codex", tr("tabs.codex"), "selectCodex"),
-    tabButton("claude", tr("tabs.claude"), "selectClaude"),
-  })
+  }, buttons)
 end
 
 local function connectedCount()
   local count = 0
-  for name, _ in pairs(PROVIDERS) do
+  for _, name in ipairs(enabledProviderNames()) do
     if providerSnapshot(name).availability ~= "unavailable" then
       count += 1
     end
@@ -828,6 +868,9 @@ end
 local function render()
   if not opened then
     return
+  end
+  if activeTab ~= "overview" and not providerEnabled(activeTab) then
+    activeTab = "overview"
   end
   local codex = providerSnapshot("codex")
   local claude = providerSnapshot("claude")
@@ -880,12 +923,12 @@ function selectOverview()
 end
 
 function selectCodex()
-  activeTab = "codex"
+  activeTab = providerEnabled("codex") and "codex" or "overview"
   render()
 end
 
 function selectClaude()
-  activeTab = "claude"
+  activeTab = providerEnabled("claude") and "claude" or "overview"
   render()
 end
 

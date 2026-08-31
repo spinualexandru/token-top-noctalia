@@ -75,8 +75,8 @@ the corresponding CLI.
 
 ## Settings
 
-- **Codex · Enable:** show or hide Codex quota in the compact bar widget; enabled by default.
-- **Claude · Enable:** show or hide Claude quota in the compact bar widget; disabled by default.
+- **Codex · Enable:** show or hide Codex quota in the compact bar widget and panel; enabled by default.
+- **Claude · Enable:** show or hide Claude quota in the compact bar widget and panel; disabled by default.
 - **Codex settings · Show 5-hour limit in bar/panel:** independent Codex controls, both disabled by default.
 - **Claude settings · Show 5-hour limit in bar/panel:** independent Claude controls, both enabled by default.
 

@@ -96,11 +96,11 @@
   "settings": {
     "enable_codex": {
       "label": "Codex · Enable",
-      "description": "Show Codex quota in the compact bar widget."
+      "description": "Show Codex quota in the compact bar widget and panel."
     },
     "enable_claude": {
       "label": "Claude · Enable",
-      "description": "Show Claude quota in the compact bar widget."
+      "description": "Show Claude quota in the compact bar widget and panel."
     },
     "show_five_hour_bar": {
       "label": "Codex settings · Show 5-hour limit in bar",
