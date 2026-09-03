@@ -832,8 +832,8 @@ local function processStatsAggregation()
 end
 
 local function codexFileCommand(path)
-  local tokenPattern = [[^\{"timestamp":"(?<timestamp>[^"]+)","type":"event_msg","payload":\{"type":"token_count","info":\{"total_token_usage":\{(?=[^\r\n]*?"input_tokens":(?<input>\d+))(?=[^\r\n]*?"cached_input_tokens":(?<cached>\d+))(?=[^\r\n]*?"output_tokens":(?<output>\d+))(?=[^\r\n]*?"reasoning_output_tokens":(?<reasoning>\d+))(?=[^\r\n]*?"total_tokens":(?<total>\d+))]]
-  local turnPattern = [[^\{"timestamp":"(?<timestamp>[^"]+)","type":"turn_context","payload":\{"turn_id":"(?<turn>[^"]+)"]]
+  local tokenPattern = [[^\{"timestamp":"(?<timestamp>[^"]+)",(?:"ordinal":\d+,)?"type":"event_msg","payload":\{"type":"token_count","info":\{"total_token_usage":\{(?=[^\r\n]*?"input_tokens":(?<input>\d+))(?=[^\r\n]*?"cached_input_tokens":(?<cached>\d+))(?=[^\r\n]*?"output_tokens":(?<output>\d+))(?=[^\r\n]*?"reasoning_output_tokens":(?<reasoning>\d+))(?=[^\r\n]*?"total_tokens":(?<total>\d+))]]
+  local turnPattern = [[^\{"timestamp":"(?<timestamp>[^"]+)",(?:"ordinal":\d+,)?"type":"turn_context","payload":\{"turn_id":"(?<turn>[^"]+)"]]
   local tokenReplacement = "C|$timestamp|$total|$input|$output|$cached|$reasoning"
   local turnReplacement = "T|$timestamp|$turn"
   return "{ rg --no-messages --no-filename --no-line-number --color never -P -o --replace "
@@ -1205,7 +1205,7 @@ local function refreshCodexUsage()
   local headers = {
     "Authorization: Bearer " .. accessToken,
     "Accept: application/json",
-    "User-Agent: Noctalia-token-top/0.7.0",
+    "User-Agent: Noctalia-token-top/0.9.2",
   }
   if accountId ~= nil then
     table.insert(headers, "ChatGPT-Account-Id: " .. accountId)
