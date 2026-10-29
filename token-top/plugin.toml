@@ -1,6 +1,6 @@
 id = "spinualexandru/token-top"
 name = "Token Top"
-version = "0.11.0"
+version = "0.12.0"
 plugin_api = 43
 author = "spinualexandru"
 license = "MIT"
