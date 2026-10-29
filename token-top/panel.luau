@@ -1,5 +1,7 @@
 --!nonstrict
 
+local openCodeLogo = require("./opencode_logo.luau")
+
 local STATE_KEY = "usage_snapshot"
 local REFRESH_REQUEST_KEY = "refresh_request"
 local snapshot = noctalia.state.get(STATE_KEY) or { providers = {} }
@@ -46,7 +48,6 @@ local PROVIDERS = {
   opencode = {
     labelKey = "providers.opencode",
     tabLabelKey = "tabs.opencode",
-    glyph = "terminal-2",
     enabledKey = "enable_opencode",
     defaultEnabled = false,
     detailsCallback = "viewOpenCodeDetails",
@@ -185,6 +186,8 @@ local function providerIcon(providerName, size, color, opacity)
       fit = "contain",
       opacity = opacity or 1,
     })
+  elseif providerName == "opencode" then
+    return openCodeLogo(size, color or "on_surface", opacity)
   end
   return ui.glyph({
     name = PROVIDERS[providerName].glyph,
