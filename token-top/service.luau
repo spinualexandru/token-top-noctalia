@@ -11,6 +11,8 @@ local OPENCODE_USAGE_URL = "https://opencode.ai/zen/go/v1/usage"
 local OPENCODE_PROVIDER_ID = "opencode-go"
 local USER_AGENT = "Noctalia-token-top/0.11.0"
 local POLL_SECONDS = 5 * 60
+local CLAUDE_RATE_LIMIT_BACKOFF_SECONDS = 15 * 60
+local CLAUDE_MAX_BACKOFF_SECONDS = 60 * 60
 local STATS_REFRESH_SECONDS = 5 * 60
 local IDLE_UPDATE_MS = 60000
 local WORK_UPDATE_MS = 32
@@ -41,6 +43,8 @@ local providers = {
     name = "claude",
     inFlight = false,
     nextPollAt = 0,
+    nextRequestAt = 0,
+    rateLimitBackoff = 0,
     nextStatsScanAt = 0,
     lastGood = nil,
     status = "loading",
@@ -1671,6 +1675,12 @@ local function refreshClaudeUsage()
     return
   end
   local attemptedAt = os.time()
+  -- Manual refreshes and config changes must obey the same minimum interval and
+  -- rate-limit cooldown as polling, even when they reset nextPollAt.
+  if attemptedAt < provider.nextRequestAt then
+    provider.nextPollAt = math.max(provider.nextPollAt, provider.nextRequestAt)
+    return
+  end
   local credentials, credentialError = loadClaudeCredentials()
   provider.nextPollAt = attemptedAt + POLL_SECONDS
   if credentialError ~= nil then
@@ -1678,6 +1688,7 @@ local function refreshClaudeUsage()
     return
   end
 
+  provider.nextRequestAt = provider.nextPollAt
   provider.inFlight = true
   publishProvider(provider, "loading", nil, attemptedAt)
   local started = noctalia.http({
@@ -1699,6 +1710,14 @@ local function refreshClaudeUsage()
       return
     end
     if response.status == 429 then
+      -- plugin_api 43 only exposes ok/status/body, so Retry-After is unavailable.
+      -- Back off from response time; a slow response must not consume the cooldown.
+      provider.rateLimitBackoff = math.min(
+        math.max(CLAUDE_RATE_LIMIT_BACKOFF_SECONDS, provider.rateLimitBackoff * 2),
+        CLAUDE_MAX_BACKOFF_SECONDS
+      )
+      provider.nextRequestAt = os.time() + provider.rateLimitBackoff
+      provider.nextPollAt = provider.nextRequestAt
       failProvider(provider, tr("errors.claude_rate_limited"), attemptedAt)
       return
     end
@@ -1712,6 +1731,7 @@ local function refreshClaudeUsage()
       return
     end
     provider.lastGood = parsed
+    provider.rateLimitBackoff = 0
     provider.inFlight = false
     publishProvider(provider, "ready", nil, attemptedAt)
     scheduleStatsScan("claude")
@@ -1908,12 +1928,15 @@ end
 function onConfigChanged()
   local changed = false
   local newlyEnabled = {}
+  local refreshNeeded = {}
   for _, name in ipairs(providerOrder) do
     local isEnabled = providerEnabled(name)
     if isEnabled ~= enabled[name] then
+      changed = true
       enabled[name] = isEnabled
       if isEnabled then
         newlyEnabled[name] = true
+        refreshNeeded[name] = true
         providers[name].nextPollAt = 0
         providers[name].nextStatsScanAt = 0
       end
@@ -1930,6 +1953,7 @@ function onConfigChanged()
         end
       else
         provider.nextPollAt = 0
+        refreshNeeded[name] = true
       end
     end
   end
@@ -1944,7 +1968,7 @@ function onConfigChanged()
   end
   publishAll()
   for _, name in ipairs(providerOrder) do
-    if trackingFiveHour[name] or newlyEnabled[name] then
+    if refreshNeeded[name] then
       refreshers[name]()
     end
   end

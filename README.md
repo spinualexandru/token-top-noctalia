@@ -1,15 +1,15 @@
 # Token Top
 
-![Token Top plugin thumbnail](token-top/thumbnail.webp)
+Track Codex, Claude Code, and OpenCode Go usage from your Noctalia bar.
 
-Track Codex, Claude Code, and OpenCode Go quota usage and local session activity from the Noctalia bar.
-
-![token-top preview](preview.png)
+![Token Top preview](preview.png)
 
 ## Get started
 
-1. Use Noctalia v5.4.0 or newer, and install [ripgrep](https://github.com/BurntSushi/ripgrep). OpenCode Go also needs `sqlite3`.
-2. Sign in to at least one supported agent with `codex login`, `claude login`, or `opencode auth` (OpenCode Go).
-3. In Noctalia > Plugins, add `https://github.com/spinualexandru/token-top-noctalia` as a plugin source.
-4. Enable `spinualexandru/token-top` and add the **Token Top** widget to your bar.
-5. In plugin settings, enable Codex, Claude, and/or OpenCode Go, then click the widget for Overview and per-agent details.
+Requires **Noctalia 5.4+** and **ripgrep**. OpenCode Go also needs **sqlite3**.
+
+1. Sign in with `codex login`, `claude login`, or `opencode auth`.
+2. Add `https://github.com/spinualexandru/token-top-noctalia` as a source in **Noctalia → Plugins**.
+3. Enable **Token Top**, add its widget to your bar, and choose your providers in plugin settings.
+
+Click the widget to see quota usage, reset times, and local session activity.
