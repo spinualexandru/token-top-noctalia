@@ -63,6 +63,18 @@ local function configEnabled(key)
   return value == true or value == "true"
 end
 
+local ENABLED_KEYS = { codex = "enable_codex", claude = "enable_claude" }
+local ENABLED_DEFAULTS = { codex = true, claude = false }
+
+-- Mirrors the widget and panel: a missing toggle keeps the previous Codex-only default.
+local function providerEnabled(providerName)
+  local value = noctalia.getConfig(ENABLED_KEYS[providerName])
+  if value == nil then
+    return ENABLED_DEFAULTS[providerName]
+  end
+  return value == true or value == "true"
+end
+
 local function shouldTrackFiveHour(providerName)
   if providerName == "claude" then
     return configEnabled("show_claude_five_hour_bar") or configEnabled("show_claude_five_hour_panel")
@@ -73,6 +85,11 @@ end
 local trackingFiveHour = {
   codex = shouldTrackFiveHour("codex"),
   claude = shouldTrackFiveHour("claude"),
+}
+
+local enabled = {
+  codex = providerEnabled("codex"),
+  claude = providerEnabled("claude"),
 }
 
 local function codexHome()
@@ -119,6 +136,7 @@ local function providerSnapshot(provider)
     snapshot.weekly = quota.weekly
     snapshot.scopedWindows = quota.scopedWindows
     snapshot.extraUsage = quota.extraUsage
+    snapshot.weeklyBreakdown = quota.weeklyBreakdown
     snapshot.updatedAt = quota.updatedAt
   end
 
@@ -668,9 +686,11 @@ local function startNextStatsWork()
     local provider = providers[name]
     if provider.pendingScan then
       provider.pendingScan = false
-      -- Forward declaration is resolved when the scheduler runs.
-      beginProviderStatsScan(name)
-      return
+      if enabled[name] then
+        -- Forward declaration is resolved when the scheduler runs.
+        beginProviderStatsScan(name)
+        return
+      end
     end
   end
   noctalia.setUpdateInterval(IDLE_UPDATE_MS)
@@ -1076,6 +1096,9 @@ beginProviderStatsScan = function(providerName)
 end
 
 local function scheduleStatsScan(providerName)
+  if not enabled[providerName] then
+    return
+  end
   providers[providerName].pendingScan = true
   noctalia.setUpdateInterval(WORK_UPDATE_MS)
   startNextStatsWork()
@@ -1189,7 +1212,7 @@ end
 
 local function refreshCodexUsage()
   local provider = providers.codex
-  if provider.inFlight then
+  if provider.inFlight or not enabled.codex then
     return
   end
   local attemptedAt = os.time()
@@ -1205,7 +1228,7 @@ local function refreshCodexUsage()
   local headers = {
     "Authorization: Bearer " .. accessToken,
     "Accept: application/json",
-    "User-Agent: Noctalia-token-top/0.9.2",
+    "User-Agent: Noctalia-token-top/0.10.0",
   }
   if accountId ~= nil then
     table.insert(headers, "ChatGPT-Account-Id: " .. accountId)
@@ -1356,13 +1379,71 @@ local function parseClaudeExtraUsage(value)
   if monthlyLimit == nil and usedCredits == nil and utilization == nil then
     return nil
   end
+  -- Amounts are in minor units; older responses omit decimal_places and use cents.
+  local divisor = 10 ^ math.max(0, math.floor(tonumber(value.decimal_places) or 2))
   return {
     enabled = true,
-    monthlyLimit = monthlyLimit ~= nil and monthlyLimit / 100 or nil,
-    usedCredits = usedCredits ~= nil and usedCredits / 100 or nil,
+    monthlyLimit = monthlyLimit ~= nil and monthlyLimit / divisor or nil,
+    usedCredits = usedCredits ~= nil and usedCredits / divisor or nil,
     usedPercent = utilization ~= nil and math.max(0, utilization) or nil,
     currency = type(value.currency) == "string" and value.currency or "USD",
   }
+end
+
+-- Share of the current weekly window consumed by each surface (Claude Code, chats,
+-- Cowork, ...). Zero-share rows are dropped; the remainder is sorted largest first.
+local function parseClaudeWeeklyBreakdown(value)
+  if type(value) ~= "table" or type(value.rows) ~= "table" then
+    return nil
+  end
+  local rows = {}
+  for _, row in ipairs(value.rows) do
+    local percent = type(row) == "table" and tonumber(row.percent) or nil
+    local label = type(row) == "table" and row.display_name or nil
+    if percent ~= nil and percent > 0 and type(label) == "string" and noctalia.string.trim(label) ~= "" then
+      table.insert(rows, { label = label, percent = math.min(100, percent) })
+    end
+  end
+  if #rows == 0 then
+    return nil
+  end
+  table.sort(rows, function(a, b)
+    if a.percent == b.percent then
+      return a.label < b.label
+    end
+    return a.percent > b.percent
+  end)
+  return rows
+end
+
+-- A weekly_scoped limit is scoped to a model, a surface, or both.
+local function claudeScopeLabel(scope)
+  if type(scope) ~= "table" then
+    return nil
+  end
+  local names = {}
+  for _, part in ipairs({ scope.model, scope.surface }) do
+    local name = nil
+    if type(part) == "table" then
+      local displayName = part.display_name
+      local id = type(part.id) == "string" and part.id:lower():gsub("[^%w]+", "-") or ""
+      local normalized = type(displayName) == "string" and displayName:lower():gsub("[^%w]+", "-") or ""
+      if type(displayName) == "string"
+        and noctalia.string.trim(displayName) ~= ""
+        and normalized ~= "all-models"
+        and id ~= "all-models"
+        and id:sub(-11) ~= "-all-models"
+      then
+        name = noctalia.string.trim(displayName)
+      end
+    elseif type(part) == "string" and noctalia.string.trim(part) ~= "" then
+      name = noctalia.string.trim(part)
+    end
+    if name ~= nil then
+      table.insert(names, name)
+    end
+  end
+  return #names > 0 and table.concat(names, " · ") or nil
 end
 
 local function parseClaudeUsage(body, includeFiveHour, planType)
@@ -1378,22 +1459,14 @@ local function parseClaudeUsage(body, includeFiveHour, planType)
   addClaudeScopedWindow(scopedWindows, seen, "Sonnet only", decoded.seven_day_sonnet)
   addClaudeScopedWindow(scopedWindows, seen, "Opus only", decoded.seven_day_opus)
   addClaudeScopedWindow(scopedWindows, seen, "OAuth apps only", decoded.seven_day_oauth_apps)
+  addClaudeScopedWindow(scopedWindows, seen, "Cowork only", decoded.seven_day_cowork)
 
   if type(decoded.limits) == "table" then
     for _, limit in ipairs(decoded.limits) do
       if type(limit) == "table" and limit.kind == "weekly_scoped" and limit.group == "weekly" then
-        local model = type(limit.scope) == "table" and limit.scope.model or nil
-        local displayName = type(model) == "table" and model.display_name or nil
-        local modelId = type(model) == "table" and model.id or nil
-        local normalized = type(displayName) == "string" and displayName:lower():gsub("[^%w]+", "-") or ""
-        local normalizedId = type(modelId) == "string" and modelId:lower():gsub("[^%w]+", "-") or ""
-        if type(displayName) == "string"
-          and noctalia.string.trim(displayName) ~= ""
-          and normalized ~= "all-models"
-          and normalizedId ~= "all-models"
-          and normalizedId:sub(-11) ~= "-all-models"
-        then
-          addClaudeScopedWindow(scopedWindows, seen, displayName .. " only", {
+        local label = claudeScopeLabel(limit.scope)
+        if label ~= nil then
+          addClaudeScopedWindow(scopedWindows, seen, label .. " only", {
             utilization = limit.percent,
             resets_at = limit.resets_at,
           })
@@ -1403,6 +1476,7 @@ local function parseClaudeUsage(body, includeFiveHour, planType)
   end
 
   local extraUsage = parseClaudeExtraUsage(decoded.extra_usage)
+  local weeklyBreakdown = parseClaudeWeeklyBreakdown(decoded.seven_day_breakdown)
   if fiveHour == nil and weekly == nil and #scopedWindows == 0 and extraUsage == nil then
     return nil, tr("errors.claude_no_windows")
   end
@@ -1412,13 +1486,14 @@ local function parseClaudeUsage(body, includeFiveHour, planType)
     weekly = weekly,
     scopedWindows = scopedWindows,
     extraUsage = extraUsage,
+    weeklyBreakdown = weeklyBreakdown,
     updatedAt = os.time(),
   }, nil
 end
 
 local function refreshClaudeUsage()
   local provider = providers.claude
-  if provider.inFlight then
+  if provider.inFlight or not enabled.claude then
     return
   end
   local attemptedAt = os.time()
@@ -1503,7 +1578,7 @@ function update()
   local now = os.time()
   for _, name in ipairs(providerOrder) do
     local provider = providers[name]
-    if now >= provider.nextStatsScanAt then
+    if enabled[name] and now >= provider.nextStatsScanAt then
       provider.pendingScan = true
     end
   end
@@ -1519,7 +1594,18 @@ end
 
 function onConfigChanged()
   local changed = false
+  local newlyEnabled = {}
   for _, name in ipairs(providerOrder) do
+    local isEnabled = providerEnabled(name)
+    if isEnabled ~= enabled[name] then
+      enabled[name] = isEnabled
+      if isEnabled then
+        newlyEnabled[name] = true
+        providers[name].nextPollAt = 0
+        providers[name].nextStatsScanAt = 0
+      end
+    end
+
     local includeFiveHour = shouldTrackFiveHour(name)
     if includeFiveHour ~= trackingFiveHour[name] then
       changed = true
@@ -1535,14 +1621,19 @@ function onConfigChanged()
     end
   end
 
-  if not changed then
+  for _, name in ipairs(providerOrder) do
+    if newlyEnabled[name] then
+      scheduleStatsScan(name)
+    end
+  end
+  if not changed and next(newlyEnabled) == nil then
     return
   end
   publishAll()
-  if trackingFiveHour.codex then
+  if trackingFiveHour.codex or newlyEnabled.codex then
     refreshCodexUsage()
   end
-  if trackingFiveHour.claude then
+  if trackingFiveHour.claude or newlyEnabled.claude then
     refreshClaudeUsage()
   end
 end

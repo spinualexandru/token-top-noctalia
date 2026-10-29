@@ -39,7 +39,9 @@
     "not_connected": "Not connected",
     "connecting": "Connecting…",
     "extra_usage": "Extra usage",
-    "extra_usage_value": "{currency} {used} / {currency} {limit}"
+    "extra_usage_value": "{currency} {used} / {currency} {limit}",
+    "weekly_breakdown": "This week by surface",
+    "share_percent": "{percent}%"
   },
   "guidance": {
     "codex": "Run codex login to connect quota usage. Local sessions remain available when present.",

@@ -20,6 +20,8 @@ Track Codex and Claude Code quota consumption and local session token activity f
 
 Codex detail includes input, output, cached input, reasoning, requests, turns, and thread distribution. Claude detail
 includes input, output, cache creation, cache reads, requests, sessions, and model mix.
+Claude quota detail also shows model- and surface-scoped weekly limits (such as Fable or Cowork) and how the current
+week's usage splits across surfaces like Claude Code, chats, and Cowork.
 
 ## Usage
 
@@ -69,6 +71,7 @@ the corresponding CLI.
 
 ## Requirements
 
+- Noctalia v5.4.0 or newer (`plugin_api = 43`).
 - `rg` (ripgrep), used to extract structural token metadata from Codex and Claude session JSONL.
 
 `curl`, `jq`, CodexBar, and the Claude CLI are not invoked by the plugin.
@@ -84,11 +87,13 @@ The bar's standard **Color** presentation setting tints the usage text, while **
 Claude logo keeps its brand color. When unset, usage-based semantic theme colors are used. Disabling both providers
 hides the widget.
 
+A disabled provider is fully idle: the service neither requests its quota nor scans its session logs.
+
 ## Side effects and privacy
 
 - **Filesystem reads:** credentials and local JSONL session metadata under the active Codex and Claude configuration
-  roots.
-- **Network:** authenticated quota requests to `https://chatgpt.com/backend-api/wham/usage` and
+  roots, for enabled providers only.
+- **Network:** for enabled providers, authenticated quota requests to `https://chatgpt.com/backend-api/wham/usage` and
   `https://api.anthropic.com/api/oauth/usage`. Requests honor Noctalia's offline mode.
 - **Filesystem writes:** none.
 - **Spawned processes:** ripgrep scans relevant JSONL files. Claude extraction emits only timestamp, message/request

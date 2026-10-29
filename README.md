@@ -8,7 +8,7 @@ Track Codex and Claude Code quota usage and local session activity from the Noct
 
 ## Get started
 
-1. Install [ripgrep](https://github.com/BurntSushi/ripgrep).
+1. Use Noctalia v5.4.0 or newer, and install [ripgrep](https://github.com/BurntSushi/ripgrep).
 2. Sign in to at least one supported agent with `codex login` or `claude login`.
 3. In Noctalia > Plugins, add `https://github.com/spinualexandru/token-top-noctalia` as a plugin source.
 4. Enable `spinualexandru/token-top` and add the **Token Top** widget to your bar.

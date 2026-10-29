@@ -210,7 +210,7 @@ local function windowCard(title, window)
     }),
   }
   return ui.column({
-    fill = "surface_variant",
+    fill = "surface_container",
     radius = 12,
     paddingH = 14,
     paddingV = 12,
@@ -262,7 +262,7 @@ end
 local function guidanceCard(providerName, provider)
   local message = provider.error or providerGuidance(providerName)
   return ui.row({
-    fill = "surface_variant",
+    fill = "surface_container",
     radius = 12,
     paddingH = 14,
     paddingV = 12,
@@ -279,7 +279,7 @@ end
 
 local function tokenMetric(label, value, accentValue)
   return ui.column({
-    fill = "surface_variant",
+    fill = "surface_container",
     radius = 12,
     paddingH = 14,
     paddingV = 12,
@@ -334,7 +334,7 @@ local function activityChart(stats)
   end
 
   return ui.column({
-    fill = "surface_variant",
+    fill = "surface_container",
     radius = 12,
     paddingH = 14,
     paddingV = 12,
@@ -356,7 +356,7 @@ local function codexBreakdown(stats)
   local cachedPercent = math.max(0, math.floor(tonumber(stats.cachedInputPercent) or 0))
   local reasoningPercent = math.max(0, math.floor(tonumber(stats.reasoningPercent) or 0))
   return ui.column({
-    fill = "surface_variant",
+    fill = "surface_container",
     radius = 12,
     paddingH = 14,
     paddingV = 12,
@@ -389,7 +389,7 @@ end
 
 local function claudeBreakdown(stats)
   return ui.column({
-    fill = "surface_variant",
+    fill = "surface_container",
     radius = 12,
     paddingH = 14,
     paddingV = 12,
@@ -467,7 +467,7 @@ local function supportingStats(providerName, stats)
     ))
   end
   return ui.column({
-    fill = "surface_variant",
+    fill = "surface_container",
     radius = 12,
     paddingH = 14,
     paddingV = 11,
@@ -496,7 +496,7 @@ local function modelMixCard(stats)
     ))
   end
   return ui.column({
-    fill = "surface_variant",
+    fill = "surface_container",
     radius = 12,
     paddingH = 14,
     paddingV = 11,
@@ -567,7 +567,7 @@ local function tokenStatsContent(providerName, provider)
       text = tr("stats.calculating")
     end
     return ui.row({
-      fill = "surface_variant",
+      fill = "surface_container",
       radius = 12,
       paddingH = 14,
       paddingV = 12,
@@ -645,7 +645,38 @@ local function extraUsageCard(extra)
     }))
   end
   return ui.column({
-    fill = "surface_variant",
+    fill = "surface_container",
+    radius = 12,
+    paddingH = 14,
+    paddingV = 12,
+    gap = 8,
+  }, children)
+end
+
+local function weeklyBreakdownCard(rows)
+  if type(rows) ~= "table" or #rows == 0 then
+    return nil
+  end
+  local children = {
+    ui.label({ text = tr("labels.weekly_breakdown"), fontWeight = "bold", color = "on_surface" }),
+  }
+  for _, row in ipairs(rows) do
+    local percent = math.max(0, math.min(100, math.floor((tonumber(row.percent) or 0) + 0.5)))
+    table.insert(children, ui.column({ gap = 4 }, {
+      ui.row({ align = "center", justify = "space_between", gap = 8 }, {
+        ui.label({ text = row.label or tr("labels.unavailable"), fontSize = 11, color = "on_surface_variant" }),
+        ui.label({
+          text = tr("labels.share_percent", { percent = percent }),
+          fontSize = 11,
+          fontWeight = "bold",
+          color = "on_surface",
+        }),
+      }),
+      ui.progress({ progress = percent / 100, fill = "primary", height = 5, radius = 3 }),
+    }))
+  end
+  return ui.column({
+    fill = "surface_container",
     radius = 12,
     paddingH = 14,
     paddingV = 12,
@@ -668,6 +699,8 @@ local function detailContent(providerName)
       local card = windowCard(window.label or tr("labels.weekly_scoped"), window)
       if card ~= nil then table.insert(children, card) end
     end
+    local breakdown = weeklyBreakdownCard(provider.weeklyBreakdown)
+    if breakdown ~= nil then table.insert(children, breakdown) end
     local extra = extraUsageCard(provider.extraUsage)
     if extra ~= nil then table.insert(children, extra) end
   end
@@ -792,7 +825,7 @@ local function overviewProviderCard(providerName)
   end
 
   return ui.column({
-    fill = "surface_variant",
+    fill = "surface_container",
     radius = 14,
     paddingH = 14,
     paddingV = 13,
@@ -835,7 +868,7 @@ local function tabRail()
     )
   end
   return ui.row({
-    fill = "surface_variant",
+    fill = "surface_container",
     radius = 12,
     paddingH = 4,
     paddingV = 4,
