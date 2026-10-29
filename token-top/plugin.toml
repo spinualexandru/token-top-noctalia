@@ -1,13 +1,13 @@
 id = "spinualexandru/token-top"
 name = "Token Top"
-version = "0.10.0"
+version = "0.11.0"
 plugin_api = 43
 author = "spinualexandru"
 license = "MIT"
-dependencies = ["rg"]
+dependencies = ["rg", "sqlite3"]
 tags = ["productivity", "utility"]
 icon = "sparkles"
-description = "Track Codex and Claude Code quota usage and local session statistics from the bar."
+description = "Track Codex, Claude Code, and OpenCode Go quota usage and local session statistics from the bar."
 
 [[setting]]
 key = "enable_codex"
@@ -49,6 +49,27 @@ key = "show_claude_five_hour_panel"
 type = "bool"
 label_key = "settings.show_claude_five_hour_panel.label"
 description_key = "settings.show_claude_five_hour_panel.description"
+default = true
+
+[[setting]]
+key = "enable_opencode"
+type = "bool"
+label_key = "settings.enable_opencode.label"
+description_key = "settings.enable_opencode.description"
+default = false
+
+[[setting]]
+key = "show_opencode_five_hour_bar"
+type = "bool"
+label_key = "settings.show_opencode_five_hour_bar.label"
+description_key = "settings.show_opencode_five_hour_bar.description"
+default = true
+
+[[setting]]
+key = "show_opencode_five_hour_panel"
+type = "bool"
+label_key = "settings.show_opencode_five_hour_panel.label"
+description_key = "settings.show_opencode_five_hour_panel.description"
 default = true
 
 [[widget]]

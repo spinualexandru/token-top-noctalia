@@ -16,17 +16,28 @@ local PROVIDERS = {
     enabledKey = "enable_claude",
     defaultEnabled = false,
   },
+  opencode = {
+    labelKey = "providers.opencode",
+    glyph = "terminal-2",
+    enabledKey = "enable_opencode",
+    defaultEnabled = false,
+  },
 }
 
-local PROVIDER_ORDER = { "codex", "claude" }
+local PROVIDER_ORDER = { "codex", "claude", "opencode" }
+
+local FIVE_HOUR_BAR_KEYS = {
+  codex = "show_five_hour_bar",
+  claude = "show_claude_five_hour_bar",
+  opencode = "show_opencode_five_hour_bar",
+}
 
 local function tr(key, substitutions)
   return noctalia.tr(key, substitutions)
 end
 
 local function showFiveHour(providerName)
-  local key = providerName == "claude" and "show_claude_five_hour_bar" or "show_five_hour_bar"
-  local value = noctalia.getConfig(key)
+  local value = noctalia.getConfig(FIVE_HOUR_BAR_KEYS[providerName])
   return value == true or value == "true"
 end
 
@@ -116,7 +127,7 @@ local function percentage(window)
 end
 
 local function providerGuidance(name)
-  return name == "claude" and tr("guidance.claude") or tr("guidance.codex")
+  return tr("guidance." .. name)
 end
 
 local function providerIcon(name)
@@ -156,6 +167,15 @@ local function appendTooltip(tooltip, name, provider)
       time = resetText(provider.weekly),
     }),
   })
+  if type(provider.monthly) == "table" then
+    table.insert(tooltip, {
+      key = tr("labels.monthly"),
+      value = tr("labels.usage_and_reset", {
+        percent = percentText(provider.monthly),
+        time = resetText(provider.monthly),
+      }),
+    })
+  end
   if provider.status == "loading" then
     table.insert(tooltip, {
       key = tr("labels.status"),

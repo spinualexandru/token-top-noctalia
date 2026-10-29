@@ -43,9 +43,23 @@ local PROVIDERS = {
     defaultEnabled = false,
     detailsCallback = "viewClaudeDetails",
   },
+  opencode = {
+    labelKey = "providers.opencode",
+    tabLabelKey = "tabs.opencode",
+    glyph = "terminal-2",
+    enabledKey = "enable_opencode",
+    defaultEnabled = false,
+    detailsCallback = "viewOpenCodeDetails",
+  },
 }
 
-local PROVIDER_ORDER = { "codex", "claude" }
+local PROVIDER_ORDER = { "codex", "claude", "opencode" }
+
+local FIVE_HOUR_PANEL_KEYS = {
+  codex = "show_five_hour_panel",
+  claude = "show_claude_five_hour_panel",
+  opencode = "show_opencode_five_hour_panel",
+}
 
 local function tr(key, substitutions)
   return noctalia.tr(key, substitutions)
@@ -86,8 +100,7 @@ local function providerSnapshot(name)
 end
 
 local function showFiveHour(providerName)
-  local key = providerName == "claude" and "show_claude_five_hour_panel" or "show_five_hour_panel"
-  local value = noctalia.getConfig(key)
+  local value = noctalia.getConfig(FIVE_HOUR_PANEL_KEYS[providerName])
   return value == true or value == "true"
 end
 
@@ -160,7 +173,7 @@ local function compactNumber(value)
 end
 
 local function providerGuidance(providerName)
-  return providerName == "claude" and tr("guidance.claude") or tr("guidance.codex")
+  return tr("guidance." .. providerName)
 end
 
 local function providerIcon(providerName, size, color, opacity)
@@ -408,6 +421,52 @@ local function claudeBreakdown(stats)
   })
 end
 
+local function openCodeBreakdown(stats)
+  return ui.column({
+    fill = "surface_container",
+    radius = 12,
+    paddingH = 14,
+    paddingV = 12,
+    gap = 10,
+  }, {
+    ui.label({ text = tr("stats.claude_breakdown"), fontWeight = "bold", color = "on_surface" }),
+    ui.row({ gap = 12, align = "start" }, {
+      dataCell(tr("stats.input"), compactNumber(stats.inputTokens)),
+      dataCell(tr("stats.output"), compactNumber(stats.outputTokens)),
+    }),
+    ui.separator(),
+    ui.row({ gap = 12, align = "start" }, {
+      dataCell(tr("stats.cache_write"), compactNumber(stats.cacheCreationInputTokens), "primary"),
+      dataCell(tr("stats.cache_read"), compactNumber(stats.cacheReadInputTokens), "primary"),
+    }),
+    ui.separator(),
+    ui.row({ align = "center", justify = "space_between", gap = 8 }, {
+      ui.label({
+        text = tr("stats.reasoning_tokens", { value = compactNumber(stats.reasoningTokens) }),
+        fontSize = 11,
+        color = "on_surface_variant",
+      }),
+      ui.label({
+        text = tr("stats.cost_value", {
+          value = string.format("%.2f", math.max(0, tonumber(stats.costSinceReset) or 0)),
+          today = string.format("%.2f", math.max(0, tonumber(stats.costToday) or 0)),
+        }),
+        fontSize = 11,
+        color = "on_surface_variant",
+      }),
+    }),
+  })
+end
+
+local function breakdownCard(providerName, stats)
+  if providerName == "codex" then
+    return codexBreakdown(stats)
+  elseif providerName == "opencode" then
+    return openCodeBreakdown(stats)
+  end
+  return claudeBreakdown(stats)
+end
+
 local function insightRow(label, value)
   return ui.row({ align = "center", justify = "space_between", gap = 10 }, {
     ui.label({ text = label, fontSize = 11, color = "on_surface_variant", flexGrow = 1 }),
@@ -594,10 +653,10 @@ local function tokenStatsContent(providerName, provider)
       tokenMetric(tr("stats.today"), stats.today, false),
     }),
     activityChart(stats),
-    providerName == "codex" and codexBreakdown(stats) or claudeBreakdown(stats),
+    breakdownCard(providerName, stats),
     supportingStats(providerName, stats),
   }
-  if providerName == "claude" then
+  if providerName ~= "codex" then
     local modelMix = modelMixCard(stats)
     if modelMix ~= nil then table.insert(children, modelMix) end
   end
@@ -693,6 +752,8 @@ local function detailContent(providerName)
   end
   local weekly = windowCard(tr("labels.weekly"), provider.weekly)
   if weekly ~= nil then table.insert(children, weekly) end
+  local monthly = windowCard(tr("labels.monthly"), provider.monthly)
+  if monthly ~= nil then table.insert(children, monthly) end
 
   if providerName == "claude" and type(provider.scopedWindows) == "table" then
     for _, window in ipairs(provider.scopedWindows) do
@@ -705,7 +766,7 @@ local function detailContent(providerName)
     if extra ~= nil then table.insert(children, extra) end
   end
 
-  if weekly == nil and (not showFiveHour(providerName) or roundedPercent(provider.fiveHour) == nil) then
+  if weekly == nil and monthly == nil and (not showFiveHour(providerName) or roundedPercent(provider.fiveHour) == nil) then
     table.insert(children, guidanceCard(providerName, provider))
   end
   table.insert(children, statusContent(providerName, provider))
@@ -794,6 +855,9 @@ local function overviewProviderCard(providerName)
     table.insert(children, miniWindow(tr("labels.five_hour"), provider.fiveHour))
   end
   table.insert(children, miniWindow(tr("labels.weekly"), provider.weekly))
+  if type(provider.monthly) == "table" then
+    table.insert(children, miniWindow(tr("labels.monthly"), provider.monthly))
+  end
   table.insert(children, ui.separator())
   if hasStats then
     table.insert(children, ui.row({ gap = 12, align = "start" }, {
@@ -905,9 +969,12 @@ local function render()
   if activeTab ~= "overview" and not providerEnabled(activeTab) then
     activeTab = "overview"
   end
-  local codex = providerSnapshot("codex")
-  local claude = providerSnapshot("claude")
-  local bothLoading = codex.status == "loading" and claude.status == "loading"
+  local allLoading = true
+  for _, name in ipairs(enabledProviderNames()) do
+    if providerSnapshot(name).status ~= "loading" then
+      allLoading = false
+    end
+  end
   local header = ui.row({ align = "center", justify = "space_between", gap = 8 }, {
     ui.column({ gap = 2, flexGrow = 1 }, {
       ui.label({ text = tr("title"), fontSize = 18, fontWeight = "bold", color = "on_surface" }),
@@ -917,7 +984,7 @@ local function render()
       key = "refresh_all",
       glyph = "refresh",
       variant = "ghost",
-      enabled = not bothLoading,
+      enabled = not allLoading,
       onClick = "refreshUsage",
     }),
     ui.button({ key = "close", glyph = "close", onClick = "closePanel" }),
@@ -965,12 +1032,21 @@ function selectClaude()
   render()
 end
 
+function selectOpenCode()
+  activeTab = providerEnabled("opencode") and "opencode" or "overview"
+  render()
+end
+
 function viewCodexDetails()
   selectCodex()
 end
 
 function viewClaudeDetails()
   selectClaude()
+end
+
+function viewOpenCodeDetails()
+  selectOpenCode()
 end
 
 function refreshUsage()

@@ -7,6 +7,9 @@ local STATE_KEY = "usage_snapshot"
 local REFRESH_REQUEST_KEY = "refresh_request"
 local CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 local CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+local OPENCODE_USAGE_URL = "https://opencode.ai/zen/go/v1/usage"
+local OPENCODE_PROVIDER_ID = "opencode-go"
+local USER_AGENT = "Noctalia-token-top/0.11.0"
 local POLL_SECONDS = 5 * 60
 local STATS_REFRESH_SECONDS = 5 * 60
 local IDLE_UPDATE_MS = 60000
@@ -15,6 +18,7 @@ local SCAN_FILES_PER_COMMAND = 4
 local SCAN_RECORDS_PER_TICK = 24
 local WEEK_SECONDS = 7 * 24 * 60 * 60
 local FIVE_HOUR_SECONDS = 5 * 60 * 60
+local MONTH_SECONDS = 30 * 24 * 60 * 60
 local CODEX_RECORDS_PER_TICK = 100
 local CLAUDE_RECORDS_PER_TICK = 100
 
@@ -47,9 +51,23 @@ local providers = {
     statsCacheReady = false,
     pendingScan = false,
   },
+  opencode = {
+    name = "opencode",
+    inFlight = false,
+    nextPollAt = 0,
+    nextStatsScanAt = 0,
+    lastGood = nil,
+    status = "loading",
+    error = nil,
+    attemptedAt = nil,
+    tokenStats = { status = "loading" },
+    statsCache = {},
+    statsCacheReady = false,
+    pendingScan = false,
+  },
 }
 
-local providerOrder = { "codex", "claude" }
+local providerOrder = { "codex", "claude", "opencode" }
 local activeScan = nil
 local activeAggregation = nil
 local scanGeneration = 0
@@ -63,8 +81,8 @@ local function configEnabled(key)
   return value == true or value == "true"
 end
 
-local ENABLED_KEYS = { codex = "enable_codex", claude = "enable_claude" }
-local ENABLED_DEFAULTS = { codex = true, claude = false }
+local ENABLED_KEYS = { codex = "enable_codex", claude = "enable_claude", opencode = "enable_opencode" }
+local ENABLED_DEFAULTS = { codex = true, claude = false, opencode = false }
 
 -- Mirrors the widget and panel: a missing toggle keeps the previous Codex-only default.
 local function providerEnabled(providerName)
@@ -78,19 +96,18 @@ end
 local function shouldTrackFiveHour(providerName)
   if providerName == "claude" then
     return configEnabled("show_claude_five_hour_bar") or configEnabled("show_claude_five_hour_panel")
+  elseif providerName == "opencode" then
+    return configEnabled("show_opencode_five_hour_bar") or configEnabled("show_opencode_five_hour_panel")
   end
   return configEnabled("show_five_hour_bar") or configEnabled("show_five_hour_panel")
 end
 
-local trackingFiveHour = {
-  codex = shouldTrackFiveHour("codex"),
-  claude = shouldTrackFiveHour("claude"),
-}
-
-local enabled = {
-  codex = providerEnabled("codex"),
-  claude = providerEnabled("claude"),
-}
+local trackingFiveHour = {}
+local enabled = {}
+for _, name in ipairs(providerOrder) do
+  trackingFiveHour[name] = shouldTrackFiveHour(name)
+  enabled[name] = providerEnabled(name)
+end
 
 local function codexHome()
   local configured = noctalia.getenv("CODEX_HOME")
@@ -109,6 +126,14 @@ local function claudeHome()
     return noctalia.expandPath(noctalia.string.trim(first or configured)):gsub("/+$", "")
   end
   return noctalia.expandPath("~/.claude")
+end
+
+local function openCodeDataDir()
+  local configured = noctalia.getenv("XDG_DATA_HOME")
+  if type(configured) == "string" and noctalia.string.trim(configured) ~= "" then
+    return noctalia.expandPath(noctalia.string.trim(configured)):gsub("/+$", "") .. "/opencode"
+  end
+  return noctalia.expandPath("~/.local/share/opencode")
 end
 
 local function providerSnapshot(provider)
@@ -134,6 +159,7 @@ local function providerSnapshot(provider)
     snapshot.planType = quota.planType
     snapshot.fiveHour = quota.fiveHour
     snapshot.weekly = quota.weekly
+    snapshot.monthly = quota.monthly
     snapshot.scopedWindows = quota.scopedWindows
     snapshot.extraUsage = quota.extraUsage
     snapshot.weeklyBreakdown = quota.weeklyBreakdown
@@ -144,19 +170,19 @@ local function providerSnapshot(provider)
 end
 
 local function publishAll()
-  local codex = providerSnapshot(providers.codex)
-  local claude = providerSnapshot(providers.claude)
-  local refreshedAt = math.max(
-    tonumber(codex.updatedAt) or 0,
-    tonumber(claude.updatedAt) or 0,
-    type(codex.tokenStats) == "table" and (tonumber(codex.tokenStats.updatedAt) or 0) or 0,
-    type(claude.tokenStats) == "table" and (tonumber(claude.tokenStats.updatedAt) or 0) or 0
-  )
+  local snapshots = {}
+  local refreshedAt = 0
+  for _, name in ipairs(providerOrder) do
+    local snapshot = providerSnapshot(providers[name])
+    snapshots[name] = snapshot
+    refreshedAt = math.max(
+      refreshedAt,
+      tonumber(snapshot.updatedAt) or 0,
+      type(snapshot.tokenStats) == "table" and (tonumber(snapshot.tokenStats.updatedAt) or 0) or 0
+    )
+  end
   noctalia.state.set(STATE_KEY, {
-    providers = {
-      codex = codex,
-      claude = claude,
-    },
+    providers = snapshots,
     refreshedAt = refreshedAt > 0 and refreshedAt or nil,
   })
 end
@@ -470,11 +496,13 @@ local function addClaudeUsage(summary, record)
   summary.cacheCreate += record.cacheCreate
   summary.cacheRead += record.cacheRead
   summary.output += record.output
+  summary.reasoning += record.reasoning or 0
+  summary.cost += record.cost or 0
   summary.requests += 1
 end
 
 local function emptyClaudeUsage()
-  return { total = 0, input = 0, cacheCreate = 0, cacheRead = 0, output = 0, requests = 0 }
+  return { total = 0, input = 0, cacheCreate = 0, cacheRead = 0, output = 0, reasoning = 0, cost = 0, requests = 0 }
 end
 
 local function summarizeClaudeRecord(context, record)
@@ -593,6 +621,41 @@ local function buildClaudeTokenStats(context)
   }
 end
 
+-- OpenCode session parsing ----------------------------------------------------
+
+-- OpenCode messages share Claude's token shape (input excludes cache reads and
+-- writes), plus reasoning tokens and the per-message dollar cost that Go limits
+-- are measured in. They reuse the Claude summarizer and add those fields.
+local function parseOpenCodeStatsLine(line, records)
+  local fields = splitDelimited(line, 10)
+  local createdMs = fields ~= nil and tonumber(fields[2]) or nil
+  if createdMs == nil or fields[1] == "" or fields[3] == "" then
+    return
+  end
+  local record = {
+    occurredAt = math.floor(createdMs / 1000),
+    sessionId = fields[3],
+    input = math.max(0, tonumber(fields[4]) or 0),
+    output = math.max(0, tonumber(fields[5]) or 0),
+    reasoning = math.max(0, tonumber(fields[6]) or 0),
+    cacheRead = math.max(0, tonumber(fields[7]) or 0),
+    cacheCreate = math.max(0, tonumber(fields[8]) or 0),
+    cost = math.max(0, tonumber(fields[9]) or 0),
+    model = fields[10] ~= "" and fields[10] or "Unknown",
+  }
+  record.total = record.input + record.output + record.reasoning + record.cacheRead + record.cacheCreate
+  records[fields[1]] = record
+end
+
+local function buildOpenCodeTokenStats(context)
+  local stats = buildClaudeTokenStats(context)
+  local current = context.currentUsage
+  stats.reasoningTokens = math.floor(current.reasoning + 0.5)
+  stats.costSinceReset = current.cost
+  stats.costToday = context.todayUsage.cost
+  return stats
+end
+
 -- Cooperative scan and aggregation scheduler --------------------------------
 
 local function statsWindow(provider)
@@ -639,11 +702,12 @@ local function beginStatsAggregation(providerName)
 
   local context = {
     providerName = providerName,
-    phase = providerName == "codex" and "codex" or "merge",
+    phase = if providerName == "codex" then "codex" elseif providerName == "opencode" then "summarize" else "merge",
     queue = queue,
     queueIndex = 1,
     iteratorKey = nil,
-    records = {},
+    -- OpenCode rows are already unique per message, so they skip the merge phase.
+    records = providerName == "opencode" and provider.statsCache or {},
     windowMode = window.mode,
     now = window.now,
     windowStartedAt = window.startedAt,
@@ -702,9 +766,13 @@ local function finishStatsAggregation()
     return
   end
   local provider = providers[context.providerName]
-  provider.tokenStats = context.providerName == "codex"
-    and buildCodexTokenStats(context)
-    or buildClaudeTokenStats(context)
+  if context.providerName == "codex" then
+    provider.tokenStats = buildCodexTokenStats(context)
+  elseif context.providerName == "opencode" then
+    provider.tokenStats = buildOpenCodeTokenStats(context)
+  else
+    provider.tokenStats = buildClaudeTokenStats(context)
+  end
   activeAggregation = nil
   publishAll()
   startNextStatsWork()
@@ -989,7 +1057,7 @@ end
 
 local function processStatsScan()
   local scan = activeScan
-  if scan == nil then
+  if scan == nil or scan.query then
     return
   end
 
@@ -1016,9 +1084,115 @@ local function processStatsScan()
   end
 end
 
+local function openCodeDatabase()
+  return openCodeDataDir() .. "/opencode.db"
+end
+
+local function sqliteCommand(sql)
+  return {
+    "sqlite3",
+    "-readonly",
+    "-batch",
+    "-noheader",
+    "-separator",
+    "|",
+    "-cmd",
+    ".timeout 2000",
+    openCodeDatabase(),
+    sql,
+  }
+end
+
+-- OpenCode v2 stores messages in session_message (including migrated v1 rows);
+-- older installs only have the v1 message table. Only token counters, cost, and
+-- identifiers are selected; message content never leaves the database.
+local function openCodeStatsSql(legacy, sinceMs)
+  local providerPath = legacy and "$.providerID" or "$.model.providerID"
+  local modelPath = legacy and "$.modelID" or "$.model.id"
+  local source = legacy
+    and "message WHERE json_extract(data, '$.role') = 'assistant'"
+    or "session_message WHERE type = 'assistant'"
+  return "SELECT id, time_created, session_id, "
+    .. "coalesce(json_extract(data, '$.tokens.input'), 0), "
+    .. "coalesce(json_extract(data, '$.tokens.output'), 0), "
+    .. "coalesce(json_extract(data, '$.tokens.reasoning'), 0), "
+    .. "coalesce(json_extract(data, '$.tokens.cache.read'), 0), "
+    .. "coalesce(json_extract(data, '$.tokens.cache.write'), 0), "
+    .. "coalesce(json_extract(data, '$.cost'), 0), "
+    .. "coalesce(json_extract(data, '" .. modelPath .. "'), '') "
+    .. "FROM " .. source
+    .. " AND time_created >= " .. string.format("%d", sinceMs)
+    .. " AND json_extract(data, '" .. providerPath .. "') = '" .. OPENCODE_PROVIDER_ID .. "'"
+end
+
+local function finishOpenCodeStatsQuery(generation, output)
+  local scan = activeScan
+  if scan == nil or scan.providerName ~= "opencode" or scan.generation ~= generation then
+    return
+  end
+  activeScan = nil
+  local provider = providers.opencode
+  provider.nextStatsScanAt = os.time() + STATS_REFRESH_SECONDS
+  if output == nil then
+    if provider.tokenStats.status ~= "ready" then
+      provider.tokenStats = { status = "unavailable" }
+    end
+    publishAll()
+    startNextStatsWork()
+    return
+  end
+
+  local records = {}
+  for line in output:gmatch("[^\n]+") do
+    parseOpenCodeStatsLine(line, records)
+  end
+  provider.statsCache = records
+  provider.statsCacheReady = true
+  publishAll()
+  if not beginStatsAggregation("opencode") then
+    startNextStatsWork()
+  end
+end
+
+local function runOpenCodeStatsQuery(generation, sinceMs, legacy)
+  return noctalia.runAsync(sqliteCommand(openCodeStatsSql(legacy, sinceMs)), function(result)
+    local failed = result.timedOut == true or result.stdoutTruncated == true or tonumber(result.exitCode) ~= 0
+    if failed and not legacy and type(result.stderr) == "string" and result.stderr:find("no such table", 1, true) then
+      if runOpenCodeStatsQuery(generation, sinceMs, true) then
+        return
+      end
+    end
+    finishOpenCodeStatsQuery(generation, if failed then nil else (result.stdout or ""))
+  end, 30000)
+end
+
+local function beginOpenCodeStatsQuery()
+  local provider = providers.opencode
+  scanGeneration += 1
+  local generation = scanGeneration
+  activeScan = { providerName = "opencode", query = true, generation = generation }
+  if not provider.statsCacheReady then
+    provider.tokenStats = { status = "loading" }
+    publishAll()
+  end
+
+  local window = statsWindow(provider)
+  local sinceMs = (window.startedAt - window.seconds - 86400) * 1000
+  local started = noctalia.commandExists("sqlite3")
+    and noctalia.fileExists(openCodeDatabase())
+    and runOpenCodeStatsQuery(generation, sinceMs, false)
+  if not started then
+    finishOpenCodeStatsQuery(generation, nil)
+  end
+end
+
 beginProviderStatsScan = function(providerName)
   if activeScan ~= nil or activeAggregation ~= nil then
     providers[providerName].pendingScan = true
+    return
+  end
+  if providerName == "opencode" then
+    beginOpenCodeStatsQuery()
     return
   end
 
@@ -1228,7 +1402,7 @@ local function refreshCodexUsage()
   local headers = {
     "Authorization: Bearer " .. accessToken,
     "Accept: application/json",
-    "User-Agent: Noctalia-token-top/0.10.0",
+    "User-Agent: " .. USER_AGENT,
   }
   if accountId ~= nil then
     table.insert(headers, "ChatGPT-Account-Id: " .. accountId)
@@ -1547,23 +1721,163 @@ local function refreshClaudeUsage()
   end
 end
 
+local function decodeOpenCodeWindow(value, windowSeconds)
+  if type(value) ~= "table" then
+    return nil
+  end
+  local usedPercent = tonumber(value.percent)
+  if usedPercent == nil then
+    return nil
+  end
+  return {
+    usedPercent = math.max(0, math.min(100, usedPercent)),
+    resetAt = parseIsoTimestamp(value.resetsAt),
+    windowSeconds = windowSeconds,
+  }
+end
+
+local function parseOpenCodeUsage(body, includeFiveHour)
+  local decoded = noctalia.json.decode(body)
+  if type(decoded) ~= "table" then
+    return nil, tr("errors.opencode_response_invalid")
+  end
+  local usage = decoded.usage
+  if type(usage) ~= "table" then
+    return nil, tr("errors.opencode_no_windows")
+  end
+  -- Go's "rolling" limit is its five-hour window.
+  local fiveHour = includeFiveHour and decodeOpenCodeWindow(usage.rolling, FIVE_HOUR_SECONDS) or nil
+  local weekly = decodeOpenCodeWindow(usage.weekly, WEEK_SECONDS)
+  local monthly = decodeOpenCodeWindow(usage.monthly, MONTH_SECONDS)
+  if fiveHour == nil and weekly == nil and monthly == nil then
+    return nil, tr("errors.opencode_no_windows")
+  end
+  return {
+    planType = "OpenCode Go",
+    fiveHour = fiveHour,
+    weekly = weekly,
+    monthly = monthly,
+    updatedAt = os.time(),
+  }, nil
+end
+
+local function trimmedKey(value)
+  if type(value) ~= "string" then
+    return nil
+  end
+  local key = noctalia.string.trim(value)
+  return key ~= "" and key or nil
+end
+
+local function loadOpenCodeAuthFileKey()
+  local contents = noctalia.readFile(openCodeDataDir() .. "/auth.json")
+  local decoded = type(contents) == "string" and contents ~= "" and noctalia.json.decode(contents) or nil
+  local entry = type(decoded) == "table" and decoded[OPENCODE_PROVIDER_ID] or nil
+  return type(entry) == "table" and trimmedKey(entry.key) or nil
+end
+
+-- OpenCode v2 keeps credentials in its database and leaves auth.json as written by
+-- v1, so a key there may be stale. Prefer the active database credential.
+local function loadOpenCodeKey(callback)
+  if noctalia.commandExists("sqlite3") and noctalia.fileExists(openCodeDatabase()) then
+    local sql = "SELECT json_extract(value, '$.key') FROM credential WHERE integration_id = '"
+      .. OPENCODE_PROVIDER_ID
+      .. "' AND active = 1 AND json_extract(value, '$.type') = 'key' ORDER BY time_updated DESC LIMIT 1"
+    local started = noctalia.runAsync(sqliteCommand(sql), function(result)
+      local key = tonumber(result.exitCode) == 0 and trimmedKey(result.stdout) or nil
+      callback(key or loadOpenCodeAuthFileKey())
+    end, 10000)
+    if started then
+      return
+    end
+  end
+  callback(loadOpenCodeAuthFileKey())
+end
+
+local function refreshOpenCodeUsage()
+  local provider = providers.opencode
+  if provider.inFlight or not enabled.opencode then
+    return
+  end
+  local attemptedAt = os.time()
+  provider.nextPollAt = attemptedAt + POLL_SECONDS
+  provider.inFlight = true
+  publishProvider(provider, "loading", nil, attemptedAt)
+
+  loadOpenCodeKey(function(apiKey)
+    if apiKey == nil then
+      failProvider(provider, tr("errors.opencode_auth_missing"), attemptedAt)
+      return
+    end
+    local started = noctalia.http({
+      url = OPENCODE_USAGE_URL,
+      method = "GET",
+      headers = {
+        "Authorization: Bearer " .. apiKey,
+        "Accept: application/json",
+        "User-Agent: " .. USER_AGENT,
+      },
+    }, function(response)
+      if not response.ok then
+        failProvider(provider, tr("errors.opencode_network"), attemptedAt)
+        return
+      end
+      if response.status == 401 or response.status == 403 then
+        failProvider(provider, tr("errors.opencode_unauthorized"), attemptedAt)
+        return
+      end
+      if response.status == 429 then
+        failProvider(provider, tr("errors.opencode_rate_limited"), attemptedAt)
+        return
+      end
+      if response.status < 200 or response.status >= 300 then
+        failProvider(provider, tr("errors.opencode_http_status", { status = response.status }), attemptedAt)
+        return
+      end
+      local parsed, parseError = parseOpenCodeUsage(response.body, shouldTrackFiveHour("opencode"))
+      if parsed == nil then
+        failProvider(provider, parseError, attemptedAt)
+        return
+      end
+      provider.lastGood = parsed
+      provider.inFlight = false
+      publishProvider(provider, "ready", nil, attemptedAt)
+      scheduleStatsScan("opencode")
+    end)
+    if not started then
+      failProvider(provider, tr("errors.opencode_request_not_started"), attemptedAt)
+    end
+  end)
+end
+
+local refreshers = {
+  codex = refreshCodexUsage,
+  claude = refreshClaudeUsage,
+  opencode = refreshOpenCodeUsage,
+}
+
 local function refreshAll()
-  refreshCodexUsage()
-  refreshClaudeUsage()
+  for _, name in ipairs(providerOrder) do
+    refreshers[name]()
+  end
+end
+
+local function scheduleAllStatsScans()
+  for _, name in ipairs(providerOrder) do
+    scheduleStatsScan(name)
+  end
 end
 
 noctalia.setUpdateInterval(WORK_UPDATE_MS)
 publishAll()
 
 noctalia.state.watch(REFRESH_REQUEST_KEY, function(_value)
-  scheduleStatsScan("codex")
-  scheduleStatsScan("claude")
+  scheduleAllStatsScans()
   refreshAll()
 end)
 
 -- Local logs are useful even before quota credentials are available.
-scheduleStatsScan("codex")
-scheduleStatsScan("claude")
+scheduleAllStatsScans()
 refreshAll()
 
 function update()
@@ -1584,11 +1898,10 @@ function update()
   end
   startNextStatsWork()
 
-  if now >= providers.codex.nextPollAt then
-    refreshCodexUsage()
-  end
-  if now >= providers.claude.nextPollAt then
-    refreshClaudeUsage()
+  for _, name in ipairs(providerOrder) do
+    if now >= providers[name].nextPollAt then
+      refreshers[name]()
+    end
   end
 end
 
@@ -1630,10 +1943,9 @@ function onConfigChanged()
     return
   end
   publishAll()
-  if trackingFiveHour.codex or newlyEnabled.codex then
-    refreshCodexUsage()
-  end
-  if trackingFiveHour.claude or newlyEnabled.claude then
-    refreshClaudeUsage()
+  for _, name in ipairs(providerOrder) do
+    if trackingFiveHour[name] or newlyEnabled[name] then
+      refreshers[name]()
+    end
   end
 end

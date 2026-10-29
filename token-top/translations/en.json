@@ -1,14 +1,16 @@
 {
   "title": "Token Top",
-  "description": "Track Codex and Claude Code quota usage and local session statistics from the bar.",
+  "description": "Track Codex, Claude Code, and OpenCode Go quota usage and local session statistics from the bar.",
   "providers": {
     "codex": "Codex",
-    "claude": "Claude"
+    "claude": "Claude",
+    "opencode": "OpenCode Go"
   },
   "tabs": {
     "overview": "Overview",
     "codex": "Codex",
     "claude": "Claude",
+    "opencode": "OpenCode",
     "details": "Details"
   },
   "overview": {
@@ -19,6 +21,7 @@
   "labels": {
     "five_hour": "5-hour limit",
     "weekly": "Weekly limit",
+    "monthly": "Monthly limit",
     "weekly_scoped": "Scoped weekly limit",
     "status": "Status",
     "provider": "Provider",
@@ -45,7 +48,8 @@
   },
   "guidance": {
     "codex": "Run codex login to connect quota usage. Local sessions remain available when present.",
-    "claude": "Run claude login to connect quota usage. Local Claude Code sessions remain available when present."
+    "claude": "Run claude login to connect quota usage. Local Claude Code sessions remain available when present.",
+    "opencode": "Connect OpenCode Go with opencode auth to show quota usage. Local OpenCode sessions remain available when present."
   },
   "status": {
     "loading": "Refreshing {provider} usage…"
@@ -66,6 +70,8 @@
     "cache_read": "Cache read",
     "cached_share": "{percent}% of input cached",
     "reasoning_share": "{value} reasoning · {percent}% of output",
+    "reasoning_tokens": "{value} reasoning",
+    "cost_value": "${value} est. cost · ${today} today",
     "requests_turns": "Requests / turns",
     "requests_turns_value": "{requests} / {turns}",
     "requests_sessions": "Requests / sessions",
@@ -104,6 +110,10 @@
       "label": "Claude · Enable",
       "description": "Show Claude quota in the compact bar widget and panel."
     },
+    "enable_opencode": {
+      "label": "OpenCode Go · Enable",
+      "description": "Show OpenCode Go quota in the compact bar widget and panel."
+    },
     "show_five_hour_bar": {
       "label": "Codex settings · Show 5-hour limit in bar",
       "description": "Display Codex's 5-hour percentage and tooltip row in the bar when Codex is selected."
@@ -120,13 +130,21 @@
       "label": "Claude settings · Show 5-hour limit in panel",
       "description": "Display Claude's 5-hour quota in Overview and the Claude detail view."
     },
+    "show_opencode_five_hour_bar": {
+      "label": "OpenCode Go settings · Show 5-hour limit in bar",
+      "description": "Display OpenCode Go's rolling 5-hour percentage and tooltip row in the bar when OpenCode Go is selected."
+    },
+    "show_opencode_five_hour_panel": {
+      "label": "OpenCode Go settings · Show 5-hour limit in panel",
+      "description": "Display OpenCode Go's rolling 5-hour quota in Overview and the OpenCode detail view."
+    },
     "color": {
       "label": "Text color",
       "description": "Color role or hex value for usage text in the bar."
     },
     "icon_color": {
       "label": "Icon color",
-      "description": "Color role or hex value for the Codex icon. The Claude logo keeps its brand color."
+      "description": "Color role or hex value for the Codex and OpenCode icons. The Claude logo keeps its brand color."
     }
   },
   "errors": {
@@ -150,6 +168,14 @@
     "claude_request_not_started": "Noctalia could not start the Claude usage request.",
     "claude_http_status": "Claude usage request failed with HTTP {status}.",
     "claude_response_invalid": "Claude returned an invalid usage response.",
-    "claude_no_windows": "Claude returned no usable quota windows."
+    "claude_no_windows": "Claude returned no usable quota windows.",
+    "opencode_auth_missing": "No OpenCode Go API key was found. Connect OpenCode Go with opencode auth first.",
+    "opencode_unauthorized": "OpenCode Go rejected the API key. Create a new key in OpenCode Console and connect it again.",
+    "opencode_rate_limited": "OpenCode Go temporarily rate-limited the usage request. The last update remains visible.",
+    "opencode_network": "Could not reach the OpenCode Go usage service.",
+    "opencode_request_not_started": "Noctalia could not start the OpenCode Go usage request.",
+    "opencode_http_status": "OpenCode Go usage request failed with HTTP {status}.",
+    "opencode_response_invalid": "OpenCode Go returned an invalid usage response.",
+    "opencode_no_windows": "OpenCode Go returned no usable quota windows."
   }
 }
