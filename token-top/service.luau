@@ -8,8 +8,9 @@ local REFRESH_REQUEST_KEY = "refresh_request"
 local CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 local CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 local OPENCODE_USAGE_URL = "https://opencode.ai/zen/go/v1/usage"
+local OPENCODE_STATUS_URL = "https://opencode.ai/console/api/go/status"
 local OPENCODE_PROVIDER_ID = "opencode-go"
-local USER_AGENT = "Noctalia-token-top/0.12.0"
+local USER_AGENT = "Noctalia-token-top/0.13.0"
 local POLL_SECONDS = 5 * 60
 local CLAUDE_RATE_LIMIT_BACKOFF_SECONDS = 15 * 60
 local CLAUDE_MAX_BACKOFF_SECONDS = 60 * 60
@@ -1773,7 +1774,7 @@ local function parseOpenCodeUsage(body, includeFiveHour)
     return nil, tr("errors.opencode_no_windows")
   end
   return {
-    planType = "OpenCode Go",
+    planType = providers.opencode.planType or "OpenCode Go",
     fiveHour = fiveHour,
     weekly = weekly,
     monthly = monthly,
@@ -1812,6 +1813,50 @@ local function loadOpenCodeKey(callback)
     end
   end
   callback(loadOpenCodeAuthFileKey())
+end
+
+-- The Console status response also carries billing details (account and payment
+-- method IDs); only the product name is read from it.
+local function parseOpenCodePlan(body)
+  local decoded = noctalia.json.decode(body)
+  local product = type(decoded) == "table" and decoded.product or nil
+  if type(product) ~= "string" or not product:match("^go") then
+    return nil
+  end
+  -- "go" -> "OpenCode Go", "go-plus" -> "OpenCode Go Plus".
+  local words = {}
+  for word in product:gmatch("[^%-_%s]+") do
+    table.insert(words, word:sub(1, 1):upper() .. word:sub(2):lower())
+  end
+  return "OpenCode " .. table.concat(words, " ")
+end
+
+-- The plan name only comes from the Console's status endpoint, so a failure here
+-- keeps the previous label instead of failing the quota refresh.
+local function refreshOpenCodePlan(apiKey)
+  noctalia.http({
+    url = OPENCODE_STATUS_URL,
+    method = "GET",
+    headers = {
+      "Authorization: Bearer " .. apiKey,
+      "Accept: application/json",
+      "User-Agent: " .. USER_AGENT,
+    },
+  }, function(response)
+    if not response.ok or response.status < 200 or response.status >= 300 then
+      return
+    end
+    local provider = providers.opencode
+    local planType = parseOpenCodePlan(response.body)
+    if planType == nil or planType == provider.planType then
+      return
+    end
+    provider.planType = planType
+    if type(provider.lastGood) == "table" then
+      provider.lastGood.planType = planType
+    end
+    publishAll()
+  end)
 end
 
 local function refreshOpenCodeUsage()
@@ -1862,6 +1907,7 @@ local function refreshOpenCodeUsage()
       provider.lastGood = parsed
       provider.inFlight = false
       publishProvider(provider, "ready", nil, attemptedAt)
+      refreshOpenCodePlan(apiKey)
       scheduleStatsScan("opencode")
     end)
     if not started then
