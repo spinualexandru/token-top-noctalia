@@ -64,6 +64,10 @@ local noctalia = {
     return true
   end,
 }
+-- Discovery is cooperative; pump enough ticks for this host's absent roots.
+local function tick()
+  for _ = 1, 8 do update() end
+end
 local function refresh()
   watchers.refresh_request(1)
 end
@@ -84,17 +88,17 @@ end
 CHECKS = r'''
 -- Startup, rapid update ticks, and manual refresh cannot overlap requests.
 expectCount(1)
-for _ = 1, 100 do update(); refresh() end
+for _ = 1, 100 do tick(); refresh() end
 expectCount(1)
 respond("claude", 200)
 assert(claudeSnapshot().weekly.usedPercent == 42)
-for _ = 1, 100 do refresh(); update() end
+for _ = 1, 100 do refresh(); tick() end
 expectCount(1)
 now += 299
-refresh(); update()
+refresh(); tick()
 expectCount(1)
 now += 1
-update()
+tick()
 expectCount(2)
 
 -- A delayed 429 starts the cooldown at response time and retains good quota.
@@ -103,7 +107,7 @@ respond("claude", 429)
 assert(claudeSnapshot().status == "stale")
 assert(claudeSnapshot().weekly.usedPercent == 42)
 local scansBefore = scans
-refresh()
+refresh(); tick()
 assert(scans > scansBefore, "local scans must still run during cooldown")
 expectCount(2)
 
@@ -119,7 +123,7 @@ onConfigChanged()
 expectCount(2)
 
 now += 15 * 60 - 1
-refresh(); update()
+refresh(); tick()
 expectCount(2)
 
 -- Other providers' configuration must not refresh Claude, even when due.
@@ -138,15 +142,15 @@ config.enable_codex = false
 onConfigChanged()
 
 -- Repeated 429s double the delay to a one-hour cap. Check both sides of each boundary.
-update()
+tick()
 expectCount(3)
 for index, delay in ipairs({ 30 * 60, 60 * 60, 60 * 60 }) do
   respond("claude", 429)
   now += delay - 1
-  for _ = 1, 20 do refresh(); update() end
+  for _ = 1, 20 do refresh(); tick() end
   expectCount(2 + index)
   now += 1
-  update()
+  tick()
   expectCount(3 + index)
 end
 
@@ -154,37 +158,37 @@ end
 respond("claude", 200)
 assert(claudeSnapshot().status == "ready")
 now += 299
-refresh(); update()
+refresh(); tick()
 expectCount(6)
 now += 1
-update()
+tick()
 expectCount(7)
 respond("claude", 429)
 now += 15 * 60 - 1
-refresh(); update()
+refresh(); tick()
 expectCount(7)
 now += 1
-update()
+tick()
 expectCount(8)
 
 -- Network, rejected-start, and malformed-response paths also throttle manual refreshes.
 respond("claude", 0, false)
-refresh(); update()
+refresh(); tick()
 expectCount(8)
 now += 5 * 60
 startHttp = false
-update()
+tick()
 expectCount(9)
-for _ = 1, 20 do refresh(); update() end
+for _ = 1, 20 do refresh(); tick() end
 expectCount(9)
 now += 5 * 60
 startHttp = true
-update()
+tick()
 expectCount(10)
 local callback = pending.claude
 pending.claude = nil
 callback({ ok = true, status = 200, body = "invalid" })
-refresh(); update()
+refresh(); tick()
 expectCount(10)
 
 -- Disabled Claude is idle. Fixing missing credentials can retry immediately,
@@ -192,7 +196,7 @@ expectCount(10)
 config.enable_claude = false
 onConfigChanged()
 now += 5 * 60
-refresh(); update()
+refresh(); tick()
 expectCount(10)
 credentialsAvailable = false
 config.enable_claude = true
@@ -211,10 +215,10 @@ respond("claude", 429)
 assert(claudeSnapshot().status == "error")
 assert(claudeSnapshot().weekly == nil)
 now += 15 * 60 - 1
-for _ = 1, 20 do refresh(); update() end
+for _ = 1, 20 do refresh(); tick() end
 expectCount(1)
 now += 1
-update()
+tick()
 expectCount(2)
 respond("claude", 200)
 assert(claudeSnapshot().status == "ready")

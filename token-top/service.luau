@@ -10,13 +10,14 @@ local CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 local OPENCODE_USAGE_URL = "https://opencode.ai/zen/go/v1/usage"
 local OPENCODE_STATUS_URL = "https://opencode.ai/console/api/go/status"
 local OPENCODE_PROVIDER_ID = "opencode-go"
-local USER_AGENT = "Noctalia-token-top/0.13.0"
+local USER_AGENT = "Noctalia-token-top/0.13.1"
 local POLL_SECONDS = 5 * 60
 local CLAUDE_RATE_LIMIT_BACKOFF_SECONDS = 15 * 60
 local CLAUDE_MAX_BACKOFF_SECONDS = 60 * 60
 local STATS_REFRESH_SECONDS = 5 * 60
 local IDLE_UPDATE_MS = 60000
 local WORK_UPDATE_MS = 32
+local DISCOVERY_ENTRIES_PER_TICK = 16
 local SCAN_FILES_PER_COMMAND = 4
 local SCAN_RECORDS_PER_TICK = 24
 local WEEK_SECONDS = 7 * 24 * 60 * 60
@@ -248,30 +249,6 @@ local function localMidnight(timestamp)
   parts.sec = 0
   parts.isdst = nil
   return os.time(parts)
-end
-
-local function collectSessionFiles(directory, files)
-  local entries, listError = noctalia.listDir(directory)
-  if entries == nil then
-    return false, listError
-  end
-
-  table.sort(entries)
-  for _, name in ipairs(entries) do
-    if name:sub(1, 1) ~= "." then
-      local path = directory .. "/" .. name
-      local info = noctalia.fileInfo(path)
-      if info ~= nil and info.isDir then
-        local ok, childError = collectSessionFiles(path, files)
-        if not ok then
-          return false, childError
-        end
-      elseif info ~= nil and name:sub(-6) == ".jsonl" then
-        table.insert(files, { path = path, size = info.size, mtime = info.mtime })
-      end
-    end
-  end
-  return true, nil
 end
 
 local function shellQuote(value)
@@ -1060,9 +1037,96 @@ local function completeStatsBatch(scan)
   launchStatsBatch(scan)
 end
 
+local function failStatsDiscovery(scan)
+  local provider = providers[scan.providerName]
+  activeScan = nil
+  provider.tokenStats = { status = "unavailable" }
+  provider.statsCacheReady = false
+  provider.nextStatsScanAt = os.time() + STATS_REFRESH_SECONDS
+  publishAll()
+  startNextStatsWork()
+end
+
+local function queueStatsFile(scan, path, info)
+  if info.mtime < scan.startedAt then
+    return
+  end
+  local provider = providers[scan.providerName]
+  scan.seenPaths[path] = true
+  local cached = provider.statsCache[path]
+  if cached ~= nil and cached.size == info.size and cached.mtime == info.mtime then
+    return
+  end
+  cached = { size = info.size, mtime = info.mtime }
+  if scan.providerName == "codex" then
+    cached.threadId = path:match("([0-9a-f%-]+)%.jsonl$") or path
+    cached.samples = {}
+    cached.turns = {}
+  else
+    cached.records = {}
+  end
+  table.insert(scan.queue, { file = { path = path }, cache = cached })
+end
+
+local function processStatsDiscovery(scan)
+  -- Discovery needs the same cooperative scheduling as record parsing. Walking
+  -- the entire history in one callback can exceed Noctalia's CPU budget before
+  -- the first extraction command even starts. Keep the directory cursor between
+  -- ticks, counting listings and empty/hidden entries as work too.
+  for _ = 1, DISCOVERY_ENTRIES_PER_TICK do
+    local directory = scan.directories[#scan.directories]
+    if directory == nil then
+      scan.directories = nil
+      local provider = providers[scan.providerName]
+      if #scan.queue == 0 then
+        finishStatsScan(scan.providerName)
+      elseif not noctalia.commandExists("rg") then
+        failStatsDiscovery(scan)
+      else
+        if not provider.statsCacheReady then
+          provider.tokenStats = { status = "loading", processedFiles = 0, totalFiles = #scan.queue }
+          publishAll()
+        end
+        launchStatsBatch(scan)
+      end
+      return
+    end
+
+    if directory.entries == nil then
+      directory.entries = noctalia.listDir(directory.path)
+      if directory.entries == nil then
+        failStatsDiscovery(scan)
+        return
+      end
+      table.sort(directory.entries)
+      directory.index = 1
+    else
+      local name = directory.entries[directory.index]
+      if name == nil then
+        table.remove(scan.directories)
+      else
+        directory.index += 1
+        if name:sub(1, 1) ~= "." then
+          local path = directory.path .. "/" .. name
+          local info = noctalia.fileInfo(path)
+          if info ~= nil and info.isDir then
+            table.insert(scan.directories, { path = path })
+          elseif info ~= nil and name:sub(-6) == ".jsonl" then
+            queueStatsFile(scan, path, info)
+          end
+        end
+      end
+    end
+  end
+end
+
 local function processStatsScan()
   local scan = activeScan
   if scan == nil or scan.query then
+    return
+  end
+  if scan.directories ~= nil then
+    processStatsDiscovery(scan)
     return
   end
 
@@ -1203,47 +1267,14 @@ beginProviderStatsScan = function(providerName)
 
   local provider = providers[providerName]
   local root = providerName == "codex" and (codexHome() .. "/sessions") or (claudeHome() .. "/projects")
-  local files = {}
-  local ok = collectSessionFiles(root, files)
-  if not ok then
-    provider.tokenStats = { status = "unavailable" }
-    provider.statsCacheReady = false
-    provider.nextStatsScanAt = os.time() + STATS_REFRESH_SECONDS
-    publishAll()
-    startNextStatsWork()
-    return
-  end
-
   local window = statsWindow(provider)
-  local scanStartedAt = window.startedAt - window.seconds - 86400
-  local queue = {}
-  local seenPaths = {}
-  for _, file in ipairs(files) do
-    if file.mtime >= scanStartedAt then
-      seenPaths[file.path] = true
-      local cached = provider.statsCache[file.path]
-      if cached == nil or cached.size ~= file.size or cached.mtime ~= file.mtime then
-        cached = {
-          size = file.size,
-          mtime = file.mtime,
-        }
-        if providerName == "codex" then
-          cached.threadId = file.path:match("([0-9a-f%-]+)%.jsonl$") or file.path
-          cached.samples = {}
-          cached.turns = {}
-        else
-          cached.records = {}
-        end
-        table.insert(queue, { file = file, cache = cached })
-      end
-    end
-  end
-
   scanGeneration += 1
   activeScan = {
     providerName = providerName,
-    seenPaths = seenPaths,
-    queue = queue,
+    directories = { { path = root } },
+    startedAt = window.startedAt - window.seconds - 86400,
+    seenPaths = {},
+    queue = {},
     nextCommandIndex = 1,
     commandInFlight = false,
     pendingOutput = nil,
@@ -1253,25 +1284,11 @@ beginProviderStatsScan = function(providerName)
     batchFailed = false,
     generation = scanGeneration,
   }
-  if #queue == 0 then
-    finishStatsScan(providerName)
-    return
-  end
-
   if not provider.statsCacheReady then
-    provider.tokenStats = { status = "loading", processedFiles = 0, totalFiles = #queue }
+    provider.tokenStats = { status = "loading" }
     publishAll()
   end
   noctalia.setUpdateInterval(WORK_UPDATE_MS)
-  if not noctalia.commandExists("rg") then
-    activeScan = nil
-    provider.tokenStats = { status = "unavailable" }
-    provider.nextStatsScanAt = os.time() + STATS_REFRESH_SECONDS
-    publishAll()
-    startNextStatsWork()
-    return
-  end
-  launchStatsBatch(activeScan)
 end
 
 local function scheduleStatsScan(providerName)
